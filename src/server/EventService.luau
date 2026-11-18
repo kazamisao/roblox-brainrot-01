@@ -25,7 +25,7 @@ local EventService = {}
 
 EventService.PeriodSeconds = 90
 EventService.WarnSeconds = 10
-EventService.ActiveSeconds = 20
+EventService.ActiveSeconds = 35
 EventService.BonusCash = 50
 EventService.DayLengthSeconds = 360
 
@@ -157,12 +157,7 @@ local function spawnChest()
 	table.insert(activeChests, model)
 
 	local claimed = false
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Buka Peti"
-	prompt.ObjectText = "Peti Harta Karun"
-	prompt.HoldDuration = 0.5
-	prompt.Parent = body
-	prompt.Triggered:Connect(function(player: Player)
+	local function claimChest(player: Player)
 		if claimed then
 			return
 		end
@@ -181,6 +176,31 @@ local function spawnChest()
 		end
 		model:Destroy()
 		spawnBurst(Vector3.new(x, floorY + 1.2, z))
+	end
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Buka Peti"
+	prompt.ObjectText = "Peti Harta Karun"
+	prompt.HoldDuration = 0.5
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = body
+	prompt.Triggered:Connect(function(player: Player)
+		claimChest(player)
+	end)
+
+	-- Walking into a chest opens it too — no button needed.
+	task.spawn(function()
+		while not claimed and model.Parent do
+			task.wait(0.15)
+			for _, player in Players:GetPlayers() do
+				local character = player.Character
+				local hrp = character and character:FindFirstChild("HumanoidRootPart")
+				if hrp and (hrp.Position - body.Position).Magnitude <= 4 then
+					claimChest(player)
+					return
+				end
+			end
+		end
 	end)
 end
 
