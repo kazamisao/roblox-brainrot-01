@@ -38,7 +38,16 @@ function CharacterFactory.Build(def: BrainrotData.Def): (Model, Part)
 	model.Name = def.Name
 
 	local bodySize = def.BodySize
-	local body = part(model, "Body", bodySize, CFrame.new(), def.Color)
+	-- A cylinder part's length axis runs along X, while a cast member's
+	-- logical BodySize is (width, thickness, depth) — so for cylinders the
+	-- physical size puts the thickness on X, and the Z-90° rotation below
+	-- stands that axis vertical, leaving a flat disc of diameter
+	-- bodySize.X/Z whose vertical extent is exactly bodySize.Y.
+	local physicalSize = bodySize
+	if def.Shape == Enum.PartType.Cylinder then
+		physicalSize = Vector3.new(bodySize.Y, bodySize.X, bodySize.Z)
+	end
+	local body = part(model, "Body", physicalSize, CFrame.new(), def.Color)
 	body.Shape = def.Shape
 	if def.Shape == Enum.PartType.Cylinder then
 		-- A cylinder part's axis runs along X; stand the cracker upright.

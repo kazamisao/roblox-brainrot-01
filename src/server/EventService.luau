@@ -331,7 +331,8 @@ function EventService.Start(world: any, notifyAllFn: (string) -> (), notifyFn: (
 	-- Day and night, and the golden visitor at nightfall.
 	Lighting.ClockTime = 8
 	Lighting.Brightness = 2
-	Lighting.Ambient = Color3.fromRGB(115, 115, 130)
+	Lighting.Ambient = Color3.fromRGB(150, 150, 168)
+	Lighting.OutdoorAmbient = Color3.fromRGB(120, 120, 140)
 	task.spawn(function()
 		local elapsed = 0
 		local wasNight = false
