@@ -18,7 +18,7 @@ export type Def = {
 	BodySize: Vector3,
 }
 
-BrainrotData.RarityColors: { [string]: Color3 } = {
+BrainrotData.RarityColors = {
 	Common = Color3.fromRGB(235, 235, 235),
 	Rare = Color3.fromRGB(90, 200, 255),
 	Epic = Color3.fromRGB(190, 110, 255),
@@ -27,7 +27,7 @@ BrainrotData.RarityColors: { [string]: Color3 } = {
 	Secret = Color3.fromRGB(255, 70, 60),
 }
 
-BrainrotData.Cast: { Def } = {
+BrainrotData.Cast = {
 	{
 		Name = "Kancil Ngantuk",
 		Rarity = "Common",
@@ -107,13 +107,13 @@ BrainrotData.Cast: { Def } = {
 	},
 }
 
-BrainrotData.ByName: { [string]: Def } = {}
+BrainrotData.ByName = {}
 for _, def in BrainrotData.Cast do
 	BrainrotData.ByName[def.Name] = def
 end
 
 -- The golden night visitor is always the Mythic.
-BrainrotData.GoldenDef: Def = BrainrotData.Cast[6]
+BrainrotData.GoldenDef = BrainrotData.Cast[6]
 
 local NIGHT_BONUS_RARITIES: { [string]: boolean } = {
 	Epic = true,
