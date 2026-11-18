@@ -1,17 +1,19 @@
--- CharacterFactory: builds a brainrot character as a real 3D Model out
--- of primitive Parts — a shaped body in the tier's colour on a dark
--- pedestal disc with a neon rarity glow, a ball head, two eyes and a
--- floating nameplate that reads name, income, rarity and price. It
--- also owns the floating "+$N" income popup shown over a placed
--- brainrot each time it pays. Characters are anchored and never
--- simulated; movement is the factory's GlideTo, a PivotTo ride with
--- a little hop.
+-- CharacterFactory: assembles one brainrot character as a Model of
+-- plain Parts. The recipe: a shaped body in the tier colour standing
+-- on a dark pedestal disc ringed by a neon rarity glow, a ball head
+-- with two eyes and an optional accent topper, and a three-line
+-- billboard nameplate (name, rate + rarity, price) doing the selling.
+-- This module also renders the floating "+$N" popup that appears
+-- over a placed brainrot whenever it pays out. Nothing here is
+-- physics-simulated — every part is anchored, and all travel goes
+-- through GlideTo, a PivotTo glide with a small hop in the middle.
 
 local BrainrotData = require(script.Parent.BrainrotData)
 
 local CharacterFactory = {}
 
-local function part(parent: Instance, name: string, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material?): Part
+-- Shorthand for one anchored, non-colliding Part with smooth faces.
+local function makePart(parent: Instance, name: string, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material?): Part
 	local p = Instance.new("Part")
 	p.Name = name
 	p.Size = size
@@ -26,7 +28,7 @@ local function part(parent: Instance, name: string, size: Vector3, offset: CFram
 	return p
 end
 
--- Indonesian-style money text: 150000 -> "150.000".
+-- Money the Indonesian way: 150000 renders as "150.000".
 function CharacterFactory.FormatMoney(amount: number): string
 	local digits = tostring(math.floor(amount))
 	local grouped = digits:reverse():gsub("(%d%d%d)", "%1."):reverse()
@@ -40,65 +42,66 @@ function CharacterFactory.Build(def: BrainrotData.Def): (Model, Part)
 	local model = Instance.new("Model")
 	model.Name = def.Name
 
+	-- A def's BodySize is (width, thickness, depth) in character
+	-- terms, but a Cylinder part's long axis runs along X. For
+	-- cylinders the physical part therefore takes the thickness on
+	-- X, and the Z-90° twist further down tips that axis upright:
+	-- the result is a flat disc whose diameter is BodySize.X/Z and
+	-- whose height is exactly BodySize.Y.
 	local bodySize = def.BodySize
-	-- A cylinder part's length axis runs along X, while a cast member's
-	-- logical BodySize is (width, thickness, depth) — so for cylinders the
-	-- physical size puts the thickness on X, and the Z-90° rotation below
-	-- stands that axis vertical, leaving a flat disc of diameter
-	-- bodySize.X/Z whose vertical extent is exactly bodySize.Y.
 	local physicalSize = bodySize
 	if def.Shape == Enum.PartType.Cylinder then
 		physicalSize = Vector3.new(bodySize.Y, bodySize.X, bodySize.Z)
 	end
-	local body = part(model, "Body", physicalSize, CFrame.new(), def.Color)
+	local body = makePart(model, "Body", physicalSize, CFrame.new(), def.Color)
 	body.Shape = def.Shape
 	if def.Shape == Enum.PartType.Cylinder then
-		-- A cylinder part's axis runs along X; stand the cracker upright.
 		body.CFrame = CFrame.Angles(0, 0, math.rad(90))
 	end
 
-	-- A dark pedestal disc under everything, wider than the body: it
-	-- draws a hard outline around the character on any floor colour,
-	-- so the silhouette can never melt into the plaza. On top of it a
-	-- fully opaque neon glow disc in the rarity colour, so a brainrot
-	-- reads from across the plaza even before its nameplate does.
-	-- A cylinder's axis runs along X, so rotate both discs flat.
+	-- Under the body sits a wide, near-black pedestal disc: it draws
+	-- a hard outline against any floor, so the silhouette can never
+	-- blend into the plaza. Above it, an opaque neon disc in the
+	-- rarity colour makes the tier readable from across the island.
+	-- Both discs are cylinders, so both get the same flat Z-90° lay.
 	local footDiameter = math.max(bodySize.X, bodySize.Z)
 	local rimDiameter = math.min(footDiameter * 1.5, 6.2)
-	local rim = part(model, "Pedestal", Vector3.new(rimDiameter, 0.16, rimDiameter),
+	local rim = makePart(model, "Pedestal", Vector3.new(rimDiameter, 0.16, rimDiameter),
 		CFrame.new(0, -(bodySize.Y / 2) - 0.02, 0) * CFrame.Angles(0, 0, math.rad(90)),
 		Color3.fromRGB(24, 21, 32), Enum.Material.SmoothPlastic)
 	rim.Shape = Enum.PartType.Cylinder
-	local disc = part(model, "GlowDisc", Vector3.new(math.min(footDiameter * 1.3, 5.6), 0.22, math.min(footDiameter * 1.3, 5.6)),
+	local glowDiameter = math.min(footDiameter * 1.3, 5.6)
+	local disc = makePart(model, "GlowDisc", Vector3.new(glowDiameter, 0.22, glowDiameter),
 		CFrame.new(0, -(bodySize.Y / 2) + 0.13, 0) * CFrame.Angles(0, 0, math.rad(90)),
 		BrainrotData.RarityColors[def.Rarity] or Color3.new(1, 1, 1), Enum.Material.Neon)
 	disc.Shape = Enum.PartType.Cylinder
 
 	local headSize = math.max(bodySize.X, bodySize.Z) * 0.55
 	local headY = bodySize.Y / 2 + headSize / 2 - 0.15
-	local head = part(model, "Head", Vector3.new(headSize, headSize, headSize),
+	local head = makePart(model, "Head", Vector3.new(headSize, headSize, headSize),
 		CFrame.new(0, headY, 0), def.Accent or def.Color)
 	head.Shape = Enum.PartType.Ball
 
-	-- Eyes look along +X, the direction the conveyor travels.
+	-- The eyes sit on +X, the way the conveyor runs, so a riding
+	-- brainrot always looks where it is going.
 	local headR = headSize / 2
 	for _, side in { -1, 1 } do
-		local eye = part(model, "Eye", Vector3.new(0.46, 0.46, 0.46),
+		local eye = makePart(model, "Eye", Vector3.new(0.46, 0.46, 0.46),
 			CFrame.new(headR * 0.82, headY + headR * 0.12, side * headR * 0.4),
 			Color3.fromRGB(18, 16, 22))
 		eye.Shape = Enum.PartType.Ball
 	end
 
 	if def.Accent then
-		local topper = part(model, "Topper", Vector3.new(headSize * 0.45, 0.35, headSize * 0.45),
+		local topper = makePart(model, "Topper", Vector3.new(headSize * 0.45, 0.35, headSize * 0.45),
 			CFrame.new(0, headY + headR + 0.05, 0), def.Accent, Enum.Material.Neon)
 		topper.Shape = Enum.PartType.Ball
 	end
 
-	-- The nameplate carries the whole sales pitch in one glance:
-	-- the name in its rarity colour, the income rate with the rarity,
-	-- and the price — each line on a dark backing plate so it stays
-	-- readable over any background, bright sky included.
+	-- The nameplate is the whole pitch at a glance: the name in its
+	-- rarity colour, the per-second rate beside the rarity, and the
+	-- price — every line backed by a dark plate so it survives a
+	-- bright sky behind it.
 	local rarityColor = BrainrotData.RarityColors[def.Rarity] or Color3.new(1, 1, 1)
 	local plate = Instance.new("BillboardGui")
 	plate.Name = "Nameplate"
@@ -127,14 +130,25 @@ function CharacterFactory.Build(def: BrainrotData.Def): (Model, Part)
 	plateLine("Sub", 0.42, 0.31, "$" .. def.PerSec .. "/dtk • " .. def.Rarity, Color3.fromRGB(255, 255, 255))
 	plateLine("Price", 0.73, 0.27, "Harga $" .. CharacterFactory.FormatMoney(def.Price), Color3.fromRGB(160, 255, 170))
 
-	model.PrimaryPart = body
+	-- The pivot must NOT ride on the body part. A cylinder body
+	-- carries that Z-90° twist in its own CFrame; if the body were
+	-- the PrimaryPart, the model pivot would inherit the twist and
+	-- every later PivotTo — belt spawn, base-slot glide, the hero
+	-- statue, the golden visitor — would tip the whole character
+	-- sideways and bury half of it under the floor. Instead the
+	-- pivot is pinned to the bare model origin, where every part
+	-- offset above is authored: no PrimaryPart, and a WorldPivot of
+	-- plain identity, so GetPivot() hands every caller the same
+	-- translation-only frame whatever the body shape is.
+	model.PrimaryPart = nil
+	model.WorldPivot = CFrame.new()
 	return model, body
 end
 
--- A floating "+$N" that rises over a placed brainrot each time it
--- pays, so income is visible in the world itself, not only in the
--- HUD. One reusable BillboardGui per body; a token keeps a fresh
--- tick from being faded by the previous tick's animation.
+-- The "+$N" popup: income made visible in the world, not just in
+-- the HUD. Each body keeps one reusable BillboardGui; a per-body
+-- token stops a fresh tick's animation from being faded out by the
+-- tail of the previous tick's.
 local popupTokens: { [Part]: number } = setmetatable({}, { __mode = "k" }) :: any
 
 function CharacterFactory.ShowIncomePopup(body: Part, amount: number)
@@ -181,9 +195,9 @@ function CharacterFactory.ShowIncomePopup(body: Part, amount: number)
 	end)
 end
 
--- Ride a model to a target position over `seconds`, keeping its facing
--- and adding a small hop arc. Calls `done` at the end unless the model
--- was destroyed on the way.
+-- Glide a model to a target position over `seconds`, holding the
+-- facing it started with and arcing through a small hop on the way.
+-- `done` fires at the end, unless the model died mid-ride.
 function CharacterFactory.GlideTo(model: Model, targetPos: Vector3, seconds: number, done: (() -> ())?)
 	task.spawn(function()
 		if not model.Parent then

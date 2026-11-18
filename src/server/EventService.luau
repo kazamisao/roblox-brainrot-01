@@ -1,16 +1,17 @@
--- EventService: the island's sky. Three rhythms run here:
---  * "Peti Harta Karun" — every 90 seconds (60 calm, 10 warning,
---    20 active) five treasure chests appear on the plaza, each under
---    a tall gold light pillar. Opening one (proximity prompt) pays
---    $50 x the opener's rebirth multiplier in a burst of gold;
---    unopened chests vanish when the active phase ends.
---  * Day and night — Lighting starts at 08:00 and completes a full
---    cycle every 360 seconds; night (19:00-05:00) doubles the rare
---    conveyor weights (BrainrotData.Roll reads IsNight).
---  * The golden visitor — at nightfall one free Mythic brainrot waits
---    somewhere on the island under a gold pillar; the first player
---    within 5 studs whose base has room claims it. Unclaimed at dawn,
---    it is gone.
+-- EventService: the island's event clock and sky. It runs three
+-- rhythms:
+--  * "Peti Harta Karun" — a 90-second cycle (20 calm, 10 warning,
+--    60 live) in which five treasure chests land on open plaza,
+--    each marked by a tall gold pillar. Opening one pays $50 times
+--    the opener's rebirth multiplier in a burst of gold; whatever
+--    is still shut when the live phase ends disappears.
+--  * Day and night — Lighting starts at 08:00 and sweeps a full
+--    day every 360 seconds; night (19:00-05:00) doubles the rare
+--    weights on the conveyor (BrainrotData.Roll asks IsNight).
+--  * The golden visitor — at nightfall a free Mythic brainrot
+--    waits somewhere on the island under a gold pillar, and the
+--    first player within 5 studs with room in their base takes
+--    it. Still unclaimed at dawn, it leaves.
 
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
@@ -25,12 +26,13 @@ local EventService = {}
 
 EventService.PeriodSeconds = 90
 EventService.WarnSeconds = 10
-EventService.ActiveSeconds = 35
+EventService.ActiveSeconds = 60
 EventService.BonusCash = 50
 EventService.DayLengthSeconds = 360
 
--- Set by init.server.luau: claims the golden entry for a player
--- (glide + placement live there with the other placement wiring).
+-- Wired by init.server.luau: takes the golden entry for a player
+-- (the glide and placement live there with the rest of the
+-- placement wiring).
 EventService.OnGoldenClaim = nil :: ((PlayerState.Entry, Player) -> ())?
 
 local phase = "calm" -- "calm" | "warn" | "active"
@@ -44,7 +46,17 @@ local placedFolder: Folder? = nil
 local goldenEntry: PlayerState.Entry? = nil
 local goldenPillar: Part? = nil
 local isNight = false
-local activeChests: { Model } = {} -- unclaimed chests of the current active phase
+local activeChests: { Model } = {} -- unopened chests of the live phase
+
+-- The six base centres, mirroring WorldBuilder's layout (columns
+-- at x = -42/0/42, rows at z = -40/40). Chest spots must keep
+-- their distance from these so a chest never lands inside a plot.
+local BASE_CENTERS: { Vector3 } = {}
+for i = 1, 6 do
+	local row = (i <= 3) and -1 or 1
+	local col = ((i - 1) % 3) - 1
+	table.insert(BASE_CENTERS, Vector3.new(col * 42, 0, row * 40))
+end
 
 function EventService.GetStatus(): { Phase: string, SecondsLeft: number }
 	return {
@@ -57,8 +69,8 @@ function EventService.IsNight(): boolean
 	return isNight
 end
 
--- A quick golden burst where a chest was opened: a neon gold sphere
--- that swells from 1 to 6 studs over 0.4 s while fading out.
+-- A golden flash where a chest was opened: a neon gold ball that
+-- swells from 1 to 6 studs over 0.4 s while it fades away.
 local function spawnBurst(pos: Vector3)
 	local folder = meteorsFolder
 	if not folder then
@@ -88,17 +100,52 @@ local function spawnBurst(pos: Vector3)
 	end)
 end
 
--- One treasure chest at a random point on the plaza: a brown box with
--- gold trim, its gold lid tipped open, a gold light and a tall gold
--- pillar so it can be spotted from anywhere. The proximity prompt on
--- the body is the whole interaction — hold to open, get the bonus.
+-- Pick a spot a chest can actually be reached at. Rolls are only
+-- accepted on open walkable plaza: |x| at most 48, |z| between 8
+-- and 26 — the z band keeps every chest clear of the belt strip
+-- down the middle (the belt and its rails own |z| < 8) — and at
+-- least 10 studs from every base centre, so no chest ever lands
+-- inside a base plot where its pillar shows but its body cannot
+-- be reached. Twelve rolls at most; if none fits, this chest is
+-- skipped rather than dropped somewhere broken.
+local function rollChestSpot(): Vector3?
+	for _ = 1, 12 do
+		local x = rng:NextNumber(-50, 50)
+		local z = rng:NextNumber(-26, 26)
+		if math.abs(x) <= 48 and math.abs(z) >= 8 then
+			local clearOfBases = true
+			for _, center in BASE_CENTERS do
+				local dx = x - center.X
+				local dz = z - center.Z
+				if dx * dx + dz * dz < 100 then
+					clearOfBases = false
+					break
+				end
+			end
+			if clearOfBases then
+				return Vector3.new(x, 0, z)
+			end
+		end
+	end
+	return nil
+end
+
+-- One treasure chest: a brown box with gold trim and its gold lid
+-- tipped open, a warm light, and a tall gold pillar so it reads
+-- from anywhere on the plaza. Three paths open it, all funnelled
+-- through the same claim function and its claimed latch: the
+-- proximity prompt (instant, generous range, no line of sight),
+-- physically touching the box, and simply walking up close.
 local function spawnChest()
 	local folder = meteorsFolder
 	if not folder then
 		return
 	end
-	local x = rng:NextNumber(-50, 50)
-	local z = rng:NextNumber(-26, 26)
+	local spot = rollChestSpot()
+	if not spot then
+		return
+	end
+	local x, z = spot.X, spot.Z
 	local floorY = WorldBuilder.FloorTop
 
 	local model = Instance.new("Model")
@@ -178,33 +225,57 @@ local function spawnChest()
 		spawnBurst(Vector3.new(x, floorY + 1.2, z))
 	end
 
+	-- Path one: the prompt. No hold, a long reach, and no line of
+	-- sight demanded — a chest beside a prop still opens.
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Buka Peti"
 	prompt.ObjectText = "Peti Harta Karun"
-	prompt.HoldDuration = 0.5
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 14
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = body
 	prompt.Triggered:Connect(function(player: Player)
 		claimChest(player)
 	end)
 
-	-- Walking into a chest opens it too — no button needed.
+	-- Path two: bumping into the box opens it. The hit part's
+	-- parent is the character; resolve that to its player and let
+	-- the claimed latch sort out repeats.
+	body.Touched:Connect(function(hit: BasePart)
+		local character = hit.Parent
+		if character then
+			local player = Players:GetPlayerFromCharacter(character)
+			if player then
+				claimChest(player)
+			end
+		end
+	end)
+
+	-- Path three: walking up opens it too, no button at all. The
+	-- check is horizontal only — flat XZ distance within 5 studs,
+	-- sampled every 0.1 s — so a player's height above the plaza
+	-- (jumping, standing on the chest itself) can never push them
+	-- out of range the way a 3D magnitude check did.
 	task.spawn(function()
 		while not claimed and model.Parent do
-			task.wait(0.15)
+			task.wait(0.1)
 			for _, player in Players:GetPlayers() do
 				local character = player.Character
 				local hrp = character and character:FindFirstChild("HumanoidRootPart")
-				if hrp and (hrp.Position - body.Position).Magnitude <= 4 then
-					claimChest(player)
-					return
+				if hrp then
+					local dx = hrp.Position.X - body.Position.X
+					local dz = hrp.Position.Z - body.Position.Z
+					if dx * dx + dz * dz <= 25 then
+						claimChest(player)
+						return
+					end
 				end
 			end
 		end
 	end)
 end
 
--- Unclaimed chests vanish when the active phase ends.
+-- Whatever is still shut when the live phase ends vanishes.
 local function clearChests()
 	for _, chest in activeChests do
 		if chest.Parent then
@@ -304,7 +375,8 @@ function EventService.Start(world: any, notifyAllFn: (string) -> (), notifyFn: (
 	notifyAll = notifyAllFn
 	notify = notifyFn
 
-	-- The treasure chest cycle.
+	-- The treasure chest cycle: calm, a shouted warning, then the
+	-- live window with five chests on the plaza.
 	task.spawn(function()
 		while true do
 			phase = "calm"
@@ -328,7 +400,8 @@ function EventService.Start(world: any, notifyAllFn: (string) -> (), notifyFn: (
 		end
 	end)
 
-	-- Day and night, and the golden visitor at nightfall.
+	-- The day/night sweep, with the golden visitor arriving at
+	-- nightfall and leaving again at dawn.
 	Lighting.ClockTime = 8
 	Lighting.Brightness = 2
 	Lighting.Ambient = Color3.fromRGB(150, 150, 168)
