@@ -1,13 +1,13 @@
--- Warung Brainrot: Gerobak Gacor — server bootstrap.
--- Builds the night market, wires every service to the shared player
--- state and the remotes, and runs the per-second HUD push. The game
--- loop itself lives in the services: ConveyorService rides characters
--- in, BaseService pays income and runs the base lock, StealService
--- handles grabs and carries, EventService rains sambal meteors, and
--- RebirthService resets players for a permanent income multiplier.
+-- Brainrot Island — server bootstrap.
+-- Builds the island, wires every service to the shared player state
+-- and the remotes, and runs the per-second HUD push. The game loop
+-- itself lives in the services: ConveyorService rides characters in,
+-- BaseService pays income and runs the base lock, StealService
+-- handles snatches and carries, EventService runs the sambal-meteor
+-- rain, the day/night cycle and the golden night visitor, and
+-- RebirthService sells permanent income multipliers for cash.
 
 local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
 
 local Remotes = require(script.Remotes)
 local PlayerState = require(script.PlayerState)
@@ -34,13 +34,45 @@ local world = WorldBuilder.Build()
 BaseService.Init(world.Bases)
 
 -- Cross-service wiring, kept here so the services stay decoupled:
--- placing a character arms its steal prompt; rebirthing first returns
--- anything the player is carrying to its rightful owner.
+-- placing a character arms its steal/sell prompts, and the golden
+-- night visitor is claimed by gliding it into the claimant's base.
 BaseService.OnPlaced = function(entry)
 	StealService.ArmPrompt(entry)
 end
-RebirthService.BeforeReset = function(player)
-	StealService.DropCarry(player, "rebirth")
+
+EventService.OnGoldenClaim = function(entry, player)
+	local record = PlayerState.Records[player]
+	if not record or not record.BaseIndex then
+		BaseService.DestroyEntry(entry)
+		return
+	end
+	local slot = PlayerState.FreeSlot(record)
+	if not slot then
+		BaseService.DestroyEntry(entry)
+		return
+	end
+	toast(player, "Kamu mendapatkan " .. entry.Def.Name .. " GRATIS!")
+	entry.State = "walking"
+	local target = BaseService.SlotPosition(record, slot, entry.Def)
+	if not target then
+		BaseService.DestroyEntry(entry)
+		return
+	end
+	CharacterFactory.GlideTo(entry.Model, target, 1.2, function()
+		if entry.Dead then
+			return
+		end
+		if PlayerState.Records[player] ~= record or not record.BaseIndex then
+			BaseService.DestroyEntry(entry)
+			return
+		end
+		local finalSlot = PlayerState.FreeSlot(record)
+		if not finalSlot then
+			BaseService.DestroyEntry(entry)
+			return
+		end
+		BaseService.PlaceEntry(entry, record, finalSlot)
+	end)
 end
 
 -- Lock pads: stepping up to your own base's pad and using its prompt
@@ -65,11 +97,11 @@ for _, base in world.Bases do
 	end)
 end
 
-ConveyorService.Start(Workspace:WaitForChild("WarungWorld"), toast)
+ConveyorService.Start(world, toast)
 StealService.Start(toast)
-EventService.Start(Workspace:WaitForChild("WarungWorld"), toastAll)
+EventService.Start(world, toastAll, toast)
 RebirthService.Start(world.RebirthPad, toast)
-BaseService.StartLoops(toast)
+BaseService.StartLoops()
 
 -- Client intents: the HUD buttons. Both are re-validated server-side.
 remotes.LockRequest.OnServerEvent:Connect(function(player)
@@ -94,8 +126,9 @@ local function onCharacterAdded(player: Player, character: Model)
 	end
 	local humanoid = character:WaitForChild("Humanoid", 10)
 	if humanoid then
+		humanoid.WalkSpeed = 16
 		humanoid.Died:Connect(function()
-			-- A dead thief drops the catch; it walks home on its own.
+			-- A dead thief drops the catch; it glides home on its own.
 			StealService.DropCarry(player, "death")
 			task.wait(3)
 			if player.Parent then
@@ -136,6 +169,22 @@ game:BindToClose(function()
 	end
 end)
 
+-- Fall rescue: the sea has no floor, so anyone who ends up under the
+-- island is returned to the plaza.
+task.spawn(function()
+	while true do
+		task.wait(5)
+		for _, player in Players:GetPlayers() do
+			local character = player.Character
+			local hrp = character and character:FindFirstChild("HumanoidRootPart")
+			if hrp and hrp.Position.Y < -5 then
+				hrp.CFrame = world.SpawnCFrame
+				toast(player, "Kamu tercebur dan kembali ke plaza.")
+			end
+		end
+	end
+end)
+
 -- The HUD push: once a second each player gets the numbers its screen
 -- cannot read from leaderstats alone.
 task.spawn(function()
@@ -157,9 +206,10 @@ task.spawn(function()
 				BaseSlots = PlayerState.BaseSlots,
 				EventPhase = status.Phase,
 				EventSeconds = status.SecondsLeft,
+				IsNight = EventService.IsNight(),
 			})
 		end
 	end
 end)
 
-print("Warung Brainrot: Gerobak Gacor — pasar malam buka!")
+print("Brainrot Island — pulau buka!")

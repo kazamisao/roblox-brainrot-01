@@ -1,23 +1,30 @@
--- PlayerState: the one authoritative store for per-player game state.
--- Every service reads and mutates records through here, so cash, placed
--- characters, the carried character, base assignment and lock timers all
--- live in exactly one place. leaderstats is only a display mirror of the
--- record; the record itself is what the server trusts.
+-- PlayerState: the one authoritative store for per-player game state
+-- on Brainrot Island. Cash, the rebirth level, placed brainrots, the
+-- carried brainrot, the base assignment and the lock timers all live
+-- in records here; leaderstats and the player's attributes are display
+-- mirrors the client reads, never the source of truth.
 --
--- Persistence is best-effort: the rebirth count is saved through a
--- DataStore wrapped in pcall, so a place with Studio API access off (or
--- any store error) simply plays session-only instead of failing.
+-- Persistence is best-effort: cash and the rebirth level are saved
+-- through a DataStore wrapped in pcall, so a place with Studio API
+-- access off (or any store error) simply plays session-only.
 
 local DataStoreService = game:GetService("DataStoreService")
 
 local PlayerState = {}
 
-export type PlacedEntry = {
+export type Entry = {
 	Model: Model,
+	Body: Part,
 	Def: any,
-	Slot: number,
-	Owner: any,
-	Prompt: ProximityPrompt?,
+	State: string, -- "belt" | "walking" | "placed" | "carried" | "returning" | "wild"
+	Owner: Record?,
+	OwnerPlayer: Player?,
+	Slot: number?,
+	Carrier: Player?,
+	BuyPrompt: ProximityPrompt?,
+	StealPrompt: ProximityPrompt?,
+	SellPrompt: ProximityPrompt?,
+	Dead: boolean?,
 }
 
 export type Record = {
@@ -25,25 +32,25 @@ export type Record = {
 	Cash: number,
 	Rebirths: number,
 	TotalEarned: number,
-	Placed: { PlacedEntry },
-	SlotTaken: { [number]: PlacedEntry },
-	Carrying: any?,
+	Placed: { Entry },
+	SlotTaken: { [number]: Entry },
+	Carrying: Entry?,
 	BaseIndex: number?,
 	LockUntil: number,
 	LockReadyAt: number,
 	CashValue: IntValue?,
-	RebirthValue: IntValue?,
 }
 
 PlayerState.Records = {} :: { [Player]: Record }
-PlayerState.StartCash = 50
+PlayerState.StartCash = 100
 PlayerState.MaxRebirths = 5
-PlayerState.BaseSlots = 8
+PlayerState.BaseSlots = 6
+PlayerState.StoreName = "BrainrotIsland_PlayerData_v1"
 
 local store: DataStore? = nil
 do
 	local ok, result = pcall(function()
-		return DataStoreService:GetDataStore("WarungBrainrot_v1")
+		return DataStoreService:GetDataStore(PlayerState.StoreName)
 	end)
 	if ok then
 		store = result
@@ -81,8 +88,13 @@ function PlayerState.Create(player: Player): Record
 			return (store :: DataStore):GetAsync("player_" .. player.UserId)
 		end)
 		if ok and type(data) == "table" then
-			local saved = tonumber(data.rebirths) or 0
-			record.Rebirths = math.clamp(math.floor(saved), 0, PlayerState.MaxRebirths)
+			local savedCash = tonumber(data.cash)
+			if savedCash and savedCash >= 0 then
+				record.Cash = math.floor(savedCash)
+			end
+			local savedRebirths = tonumber(data.rebirths) or 0
+			record.Rebirths = math.clamp(math.floor(savedRebirths), 0, PlayerState.MaxRebirths)
+			record.TotalEarned = math.floor(tonumber(data.totalEarned) or 0)
 		end
 	end
 
@@ -92,22 +104,21 @@ function PlayerState.Create(player: Player): Record
 	cashValue.Name = "Cash"
 	cashValue.Value = math.floor(record.Cash)
 	cashValue.Parent = leaderstats
-	local rebirthValue = Instance.new("IntValue")
-	rebirthValue.Name = "Rebirth"
-	rebirthValue.Value = record.Rebirths
-	rebirthValue.Parent = leaderstats
 	leaderstats.Parent = player
-
 	record.CashValue = cashValue
-	record.RebirthValue = rebirthValue
+
+	player:SetAttribute("RebirthLevel", record.Rebirths)
+	player:SetAttribute("IncomePerSec", 0)
+
 	PlayerState.Records[player] = record
 	return record
 end
 
-function PlayerState.SyncCash(record: Record)
+function PlayerState.SyncMirrors(record: Record)
 	if record.CashValue then
 		record.CashValue.Value = math.floor(record.Cash)
 	end
+	record.Player:SetAttribute("RebirthLevel", record.Rebirths)
 end
 
 function PlayerState.AddCash(record: Record, amount: number)
@@ -115,7 +126,7 @@ function PlayerState.AddCash(record: Record, amount: number)
 	if amount > 0 then
 		record.TotalEarned += amount
 	end
-	PlayerState.SyncCash(record)
+	PlayerState.SyncMirrors(record)
 end
 
 -- Spend only when the balance covers it; returns whether it spent.
@@ -124,20 +135,25 @@ function PlayerState.TrySpend(record: Record, amount: number): boolean
 		return false
 	end
 	record.Cash -= amount
-	PlayerState.SyncCash(record)
+	PlayerState.SyncMirrors(record)
 	return true
 end
 
--- What the player's base earns each second right now: the placed cast's
--- rates summed, scaled by the rebirth multiplier.
+-- Raw per-second income of the placed cast (carried brainrots earn
+-- nothing), scaled by the rebirth multiplier. BaseService pays the
+-- floored per-brainrot amounts; this is the HUD's display number.
 function PlayerState.IncomePerSecond(record: Record): number
 	local sum = 0
 	for _, entry in record.Placed do
-		sum += entry.Def.rate
+		if entry.State == "placed" then
+			sum += entry.Def.PerSec
+		end
 	end
 	return sum * PlayerState.Multiplier(record)
 end
 
+-- A slot counts as taken while its brainrot is placed OR out being
+-- carried: the slot stays reserved for the brainrot's way home.
 function PlayerState.FreeSlot(record: Record): number?
 	for slot = 1, PlayerState.BaseSlots do
 		if record.SlotTaken[slot] == nil then
@@ -153,6 +169,7 @@ function PlayerState.Save(record: Record)
 	end
 	pcall(function()
 		(store :: DataStore):SetAsync("player_" .. record.Player.UserId, {
+			cash = math.floor(record.Cash),
 			rebirths = record.Rebirths,
 			totalEarned = math.floor(record.TotalEarned),
 		})

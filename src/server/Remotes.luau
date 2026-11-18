@@ -16,10 +16,10 @@ local NAMES = {
 }
 
 function Remotes.Get(): { [string]: RemoteEvent }
-	local folder = ReplicatedStorage:FindFirstChild("WarungRemotes")
+	local folder = ReplicatedStorage:FindFirstChild("IslandRemotes")
 	if not folder then
 		folder = Instance.new("Folder")
-		folder.Name = "WarungRemotes"
+		folder.Name = "IslandRemotes"
 		for _, name in NAMES do
 			local event = Instance.new("RemoteEvent")
 			event.Name = name

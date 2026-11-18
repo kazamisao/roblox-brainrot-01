@@ -1,8 +1,9 @@
-// Warung Brainrot: Gerobak Gacor — this entry's game. A 3D Indonesian night-market brainrot
-// tycoon built with Rojo from the Luau sources under src/: characters ride the central conveyor,
-// are bought onto player bases where they earn cash per second, can be stolen and carried home,
-// and a sambal-meteor event rains bonus cash every 90 seconds. The starter's hand-in program
-// below is kept as it was, because it already does exactly what this entry needs.
+// Brainrot Island — this entry's game. A 3D Indonesian brainrot game on a tropical island,
+// built with Rojo from the Luau sources under src/: characters ride the plaza conveyor, are
+// bought onto player bases where they earn cash per second, can be stolen and carried home,
+// a sambal-meteor event rains bonus cash every 90 seconds, a golden brainrot visits at night,
+// and rebirths multiply income. The starter's hand-in program below is kept as it was, because
+// it already does exactly what this entry needs.
 //
 // A working roblox-brainrot-01 entry (Node 22, standard library only): the game is this directory's Rojo
 // project, built into game.rbxl with `rojo build default.project.json --output game.rbxl`, and the program

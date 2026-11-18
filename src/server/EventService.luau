@@ -1,11 +1,25 @@
--- EventService: "Hujan Meteor Sambal", the plaza-wide event. Every 90
--- seconds the sky warns for 10 seconds, then for 20 seconds flaming
--- chili meteors rain around the conveyor and the bases. Touching a
--- landed meteor pays a cash bonus; a meteor landing next to a thief
--- carrying a stolen brainrot knocks the catch loose, and it walks home.
+-- EventService: the island's sky. Three rhythms run here:
+--  * "Hujan Meteor Sambal" — every 90 seconds (60 calm, 10 warning,
+--    20 active) sambal meteors rain on the plaza. A marker disc shows
+--    each landing point from the moment the meteor spawns; the landed
+--    meteor is a big neon ball with a light pillar, lives 12 seconds,
+--    and pays $50 x the collector's rebirth multiplier to whoever
+--    touches it or stands within 5 studs.
+--  * Day and night — Lighting starts at 08:00 and completes a full
+--    cycle every 360 seconds; night (19:00-05:00) doubles the rare
+--    conveyor weights (BrainrotData.Roll reads IsNight).
+--  * The golden visitor — at nightfall one free Mythic brainrot waits
+--    somewhere on the island under a gold pillar; the first player
+--    within 5 studs whose base has room claims it. Unclaimed at dawn,
+--    it is gone.
 
+local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+
+local BrainrotData = require(script.Parent.BrainrotData)
+local CharacterFactory = require(script.Parent.CharacterFactory)
 local PlayerState = require(script.Parent.PlayerState)
-local StealService = require(script.Parent.StealService)
+local BaseService = require(script.Parent.BaseService)
 local WorldBuilder = require(script.Parent.WorldBuilder)
 
 local EventService = {}
@@ -14,13 +28,25 @@ EventService.PeriodSeconds = 90
 EventService.WarnSeconds = 10
 EventService.ActiveSeconds = 20
 EventService.BonusCash = 50
-EventService.DropRadius = 6.5
+EventService.MeteorLifetime = 12
+EventService.CollectRadius = 5
+EventService.DayLengthSeconds = 360
+
+-- Set by init.server.luau: claims the golden entry for a player
+-- (glide + placement live there with the other placement wiring).
+EventService.OnGoldenClaim = nil :: ((PlayerState.Entry, Player) -> ())?
 
 local phase = "calm" -- "calm" | "warn" | "active"
-local phaseEndsAt = os.clock() + (EventService.PeriodSeconds - EventService.WarnSeconds - EventService.ActiveSeconds)
+local phaseEndsAt = os.clock()
+	+ (EventService.PeriodSeconds - EventService.WarnSeconds - EventService.ActiveSeconds)
 local notifyAll: (string) -> () = function() end
+local notify: (Player, string) -> () = function() end
 local rng = Random.new()
 local meteorsFolder: Folder? = nil
+local placedFolder: Folder? = nil
+local goldenEntry: PlayerState.Entry? = nil
+local goldenPillar: Part? = nil
+local isNight = false
 
 function EventService.GetStatus(): { Phase: string, SecondsLeft: number }
 	return {
@@ -29,61 +55,61 @@ function EventService.GetStatus(): { Phase: string, SecondsLeft: number }
 	}
 end
 
-local function dropCarriersNear(point: Vector3)
-	for player, record in PlayerState.Records do
-		if record.Carrying then
-			local character = player.Character
-			local hrp = character and character:FindFirstChild("HumanoidRootPart")
-			if hrp then
-				local flat = Vector3.new(hrp.Position.X, 0, hrp.Position.Z)
-				local at = Vector3.new(point.X, 0, point.Z)
-				if (flat - at).Magnitude <= EventService.DropRadius then
-					StealService.DropCarry(player, "meteor")
-				end
-			end
-		end
+function EventService.IsNight(): boolean
+	return isNight
+end
+
+local function collectMeteor(player: Player, meteor: Part, pillar: Part)
+	local record = PlayerState.Records[player]
+	if not record then
+		return
 	end
+	local bonus = math.floor(EventService.BonusCash * PlayerState.Multiplier(record))
+	PlayerState.AddCash(record, bonus)
+	notify(player, "Meteor Sambal! +$" .. bonus)
+	meteor:Destroy()
+	pillar:Destroy()
 end
 
 local function spawnMeteor()
-	if not meteorsFolder then
+	local folder = meteorsFolder
+	if not folder then
 		return
 	end
 	local x = rng:NextNumber(-45, 45)
 	local z = rng:NextNumber(-28, 28)
-	local target = Vector3.new(x, WorldBuilder.FloorTop + 1.1, z)
-	local meteor = Instance.new("Part")
-	meteor.Name = "MeteorSambal"
-	meteor.Shape = Enum.PartType.Ball
-	meteor.Size = Vector3.new(3.2, 3.2, 3.2)
-	meteor.Color = Color3.fromRGB(255, 90, 40)
-	meteor.Material = Enum.Material.Neon
-	meteor.Anchored = true
-	meteor.CanCollide = false
-	meteor.CFrame = CFrame.new(x, 62, z)
-	meteor.Parent = meteorsFolder
-	local light = Instance.new("PointLight")
-	light.Color = Color3.fromRGB(255, 120, 50)
-	light.Range = 16
-	light.Brightness = 2
-	light.Parent = meteor
+	local target = Vector3.new(x, WorldBuilder.FloorTop + 1.6, z)
 
-	-- Landing marker: a flat neon disc marks the target spot from the
-	-- moment the meteor spawns, so players can run to it while it falls.
 	local marker = Instance.new("Part")
-	marker.Name = "MeteorLandingMarker"
+	marker.Name = "MeteorMarker"
+	marker.Size = Vector3.new(4.8, 0.25, 4.8)
 	marker.Shape = Enum.PartType.Cylinder
-	marker.Size = Vector3.new(0.25, 4.8, 4.8)
-	marker.Color = Color3.fromRGB(255, 60, 30)
+	marker.CFrame = CFrame.new(target.X, WorldBuilder.FloorTop + 0.15, target.Z)
+		* CFrame.Angles(0, 0, math.rad(90))
+	marker.Color = Color3.fromRGB(255, 120, 50)
 	marker.Material = Enum.Material.Neon
 	marker.Transparency = 0.35
 	marker.Anchored = true
 	marker.CanCollide = false
-	marker.CFrame = CFrame.new(x, WorldBuilder.FloorTop + 0.15, z) * CFrame.Angles(0, 0, math.rad(90))
-	marker.Parent = meteorsFolder
+	marker.Parent = folder
+
+	local meteor = Instance.new("Part")
+	meteor.Name = "MeteorSambal"
+	meteor.Size = Vector3.new(3.2, 3.2, 3.2)
+	meteor.Shape = Enum.PartType.Ball
+	meteor.CFrame = CFrame.new(x, 62, z)
+	meteor.Color = Color3.fromRGB(255, 90, 40)
+	meteor.Material = Enum.Material.Neon
+	meteor.Anchored = true
+	meteor.CanCollide = false
+	meteor.Parent = folder
+	local glow = Instance.new("PointLight")
+	glow.Color = Color3.fromRGB(255, 120, 50)
+	glow.Range = 16
+	glow.Brightness = 2
+	glow.Parent = meteor
 
 	task.spawn(function()
-		-- Fall for just under a second, trailing down to the plaza.
 		local startPos = meteor.Position
 		local duration = 0.9
 		local elapsed = 0
@@ -93,100 +119,166 @@ local function spawnMeteor()
 			local t = math.min(1, elapsed / duration)
 			meteor.CFrame = CFrame.new(startPos:Lerp(target, t * t))
 		end
-		if marker.Parent then
-			marker:Destroy()
-		end
 		if not meteor.Parent then
+			marker:Destroy()
 			return
 		end
 		meteor.CFrame = CFrame.new(target)
-		dropCarriersNear(target)
-		-- Landed beacon: a thin pillar of light above the meteor, visible
-		-- from across the plaza until the meteor is collected or burns out.
+		marker:Destroy()
+
 		local pillar = Instance.new("Part")
-		pillar.Name = "MeteorLightPillar"
+		pillar.Name = "MeteorPillar"
+		pillar.Size = Vector3.new(1.4, 30, 1.4)
 		pillar.Shape = Enum.PartType.Cylinder
-		pillar.Size = Vector3.new(30, 1.2, 1.2)
-		pillar.Color = Color3.fromRGB(255, 110, 40)
+		pillar.CFrame = CFrame.new(target.X, target.Y + 15, target.Z)
+			* CFrame.Angles(0, 0, math.rad(90))
+		pillar.Color = Color3.fromRGB(255, 120, 50)
 		pillar.Material = Enum.Material.Neon
 		pillar.Transparency = 0.6
 		pillar.Anchored = true
 		pillar.CanCollide = false
-		pillar.CFrame = CFrame.new(target.X, WorldBuilder.FloorTop + 15, target.Z) * CFrame.Angles(0, 0, math.rad(90))
-		pillar.Parent = meteorsFolder
-		-- Landed: collectible for a while, then it burns out. Every
-		-- collection path pays through collect(), so a meteor pays once.
+		pillar.Parent = folder
+
 		local collected = false
-		local function collect(player: Player)
+		local conn: RBXScriptConnection? = nil
+		conn = meteor.Touched:Connect(function(hit)
 			if collected then
 				return
 			end
-			local record = PlayerState.Records[player]
-			if not record then
-				return
-			end
-			collected = true
-			local bonus = math.floor(EventService.BonusCash * PlayerState.Multiplier(record))
-			PlayerState.AddCash(record, bonus)
-			if pillar.Parent then
-				pillar:Destroy()
-			end
-			meteor:Destroy()
-		end
-		local conn: RBXScriptConnection? = nil
-		conn = meteor.Touched:Connect(function(hit)
 			local character = hit.Parent
-			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-			if not humanoid then
-				return
-			end
-			local player = game:GetService("Players"):GetPlayerFromCharacter(character)
+			local player = character and Players:GetPlayerFromCharacter(character)
 			if player then
-				collect(player)
+				collected = true
+				if conn then
+					conn:Disconnect()
+				end
+				collectMeteor(player, meteor, pillar)
 			end
 		end)
-		-- Proximity poll: the Touched hitbox alone is easy to miss, so a
-		-- landed meteor also pays the first player who gets close enough.
-		task.spawn(function()
-			while not collected and meteor.Parent do
-				for _, player in game:GetService("Players"):GetPlayers() do
-					local character = player.Character
-					local hrp = character and character:FindFirstChild("HumanoidRootPart")
-					if hrp and (hrp.Position - meteor.Position).Magnitude <= 5 then
-						collect(player)
-						break
+		local deadline = os.clock() + EventService.MeteorLifetime
+		while not collected and os.clock() < deadline and meteor.Parent do
+			task.wait(0.15)
+			for _, player in Players:GetPlayers() do
+				local character = player.Character
+				local hrp = character and character:FindFirstChild("HumanoidRootPart")
+				if hrp and (hrp.Position - target).Magnitude <= EventService.CollectRadius then
+					collected = true
+					if conn then
+						conn:Disconnect()
 					end
-				end
-				if not collected and meteor.Parent then
-					task.wait(0.15)
+					collectMeteor(player, meteor, pillar)
+					break
 				end
 			end
-		end)
-		task.wait(12)
+		end
 		if conn then
 			conn:Disconnect()
-		end
-		if pillar.Parent then
-			pillar:Destroy()
 		end
 		if meteor.Parent then
 			meteor:Destroy()
 		end
+		if pillar.Parent then
+			pillar:Destroy()
+		end
 	end)
 end
 
-function EventService.Start(worldFolder: Instance, notifyAllFn: (string) -> ())
-	notifyAll = notifyAllFn
-	local folder = Instance.new("Folder")
-	folder.Name = "Meteors"
-	folder.Parent = worldFolder
-	meteorsFolder = folder
+local function spawnGolden()
+	if goldenEntry and not goldenEntry.Dead then
+		return
+	end
+	local folder = placedFolder
+	if not folder then
+		return
+	end
+	local def = BrainrotData.GoldenDef
+	local model, body = CharacterFactory.Build(def)
+	model.Parent = folder
+	local angle = rng:NextNumber(0, math.pi * 2)
+	local radius = rng:NextNumber(60, 100)
+	local pos = Vector3.new(math.cos(angle) * radius,
+		WorldBuilder.IslandTop + def.BodySize.Y / 2, math.sin(angle) * radius)
+	model:PivotTo(CFrame.new(pos))
+
+	local entry: PlayerState.Entry = {
+		Model = model,
+		Body = body,
+		Def = def,
+		State = "wild",
+	}
+	goldenEntry = entry
+
+	local pillar = Instance.new("Part")
+	pillar.Name = "GoldenPillar"
+	pillar.Size = Vector3.new(2, 40, 2)
+	pillar.Shape = Enum.PartType.Cylinder
+	pillar.CFrame = CFrame.new(pos.X, 20, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+	pillar.Color = Color3.fromRGB(255, 210, 60)
+	pillar.Material = Enum.Material.Neon
+	pillar.Transparency = 0.55
+	pillar.Anchored = true
+	pillar.CanCollide = false
+	pillar.Parent = folder
+	goldenPillar = pillar
+
+	notifyAll("BRAINROT EMAS LIAR muncul di pulau! Siapa cepat, dia dapat — GRATIS!")
 
 	task.spawn(function()
+		while entry.State == "wild" and not entry.Dead do
+			task.wait(0.3)
+			for _, player in Players:GetPlayers() do
+				local character = player.Character
+				local hrp = character and character:FindFirstChild("HumanoidRootPart")
+				if hrp and (hrp.Position - pos).Magnitude <= 5 then
+					local record = PlayerState.Records[player]
+					if record and record.BaseIndex and PlayerState.FreeSlot(record) then
+						entry.State = "claimed"
+						if goldenPillar then
+							goldenPillar:Destroy()
+							goldenPillar = nil
+						end
+						if EventService.OnGoldenClaim then
+							EventService.OnGoldenClaim(entry, player)
+						else
+							BaseService.DestroyEntry(entry)
+						end
+					elseif record then
+						notify(player, "Base kamu PENUH! Brainrot emas menunggu...")
+					end
+					break
+				end
+			end
+		end
+		if goldenPillar then
+			goldenPillar:Destroy()
+			goldenPillar = nil
+		end
+	end)
+end
+
+local function despawnGolden()
+	if goldenEntry and goldenEntry.State == "wild" then
+		BaseService.DestroyEntry(goldenEntry)
+	end
+	goldenEntry = nil
+	if goldenPillar then
+		goldenPillar:Destroy()
+		goldenPillar = nil
+	end
+end
+
+function EventService.Start(world: any, notifyAllFn: (string) -> (), notifyFn: (Player, string) -> ())
+	meteorsFolder = world.MeteorsFolder
+	placedFolder = world.PlacedFolder
+	notifyAll = notifyAllFn
+	notify = notifyFn
+
+	-- The meteor cycle.
+	task.spawn(function()
 		while true do
-			-- Calm: the HUD counts down to the warning.
 			phase = "calm"
-			phaseEndsAt = os.clock() + (EventService.PeriodSeconds - EventService.WarnSeconds - EventService.ActiveSeconds)
+			phaseEndsAt = os.clock()
+				+ (EventService.PeriodSeconds - EventService.WarnSeconds - EventService.ActiveSeconds)
 			task.wait(EventService.PeriodSeconds - EventService.WarnSeconds - EventService.ActiveSeconds)
 
 			phase = "warn"
@@ -196,12 +288,34 @@ function EventService.Start(worldFolder: Instance, notifyAllFn: (string) -> ())
 
 			phase = "active"
 			phaseEndsAt = os.clock() + EventService.ActiveSeconds
-			notifyAll("HUJAN METEOR SAMBAL! Sentuh meteor untuk bonus, jaga bawaanmu!")
+			notifyAll("HUJAN METEOR SAMBAL! Dekati meteor untuk bonus cash!")
 			local activeUntil = os.clock() + EventService.ActiveSeconds
 			while os.clock() < activeUntil do
 				spawnMeteor()
 				task.wait(0.65)
 			end
+		end
+	end)
+
+	-- Day and night, and the golden visitor at nightfall.
+	Lighting.ClockTime = 8
+	Lighting.Brightness = 2
+	Lighting.Ambient = Color3.fromRGB(115, 115, 130)
+	task.spawn(function()
+		local elapsed = 0
+		local wasNight = false
+		while true do
+			task.wait(1)
+			elapsed += 1
+			Lighting.ClockTime = (8 + (elapsed / EventService.DayLengthSeconds) * 24) % 24
+			local clock = Lighting.ClockTime
+			isNight = clock >= 19 or clock < 5
+			if isNight and not wasNight then
+				spawnGolden()
+			elseif not isNight and wasNight then
+				despawnGolden()
+			end
+			wasNight = isNight
 		end
 	end)
 end

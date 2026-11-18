@@ -1,17 +1,18 @@
--- Warung Brainrot: Gerobak Gacor — client HUD.
+-- Brainrot Island — client HUD.
 -- The 3D game is the world itself; this script only draws the screen
 -- over it: cash and income up top (clear of Roblox's own menu corner),
--- the meteor-event countdown, the base lock and rebirth buttons, and
--- one-line toasts. Every number that matters is the server's: cash is
--- read from leaderstats, the rest arrives on the HudUpdate remote, and
--- the buttons only send intents the server re-validates.
+-- the meteor-event countdown with a day/night marker, the base lock
+-- and rebirth buttons, and one-line toasts. Every number that matters
+-- is the server's: cash is read from leaderstats, the rest arrives on
+-- the HudUpdate remote, and the buttons only send intents the server
+-- re-validates.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
-local remotesFolder = ReplicatedStorage:WaitForChild("WarungRemotes")
+local remotesFolder = ReplicatedStorage:WaitForChild("IslandRemotes")
 local hudUpdate = remotesFolder:WaitForChild("HudUpdate") :: RemoteEvent
 local toastEvent = remotesFolder:WaitForChild("Toast") :: RemoteEvent
 local lockRequest = remotesFolder:WaitForChild("LockRequest") :: RemoteEvent
@@ -38,7 +39,7 @@ local function makePanel(parent: Instance, name: string, size: UDim2, position: 
 	panel.Size = size
 	panel.Position = position
 	panel.AnchorPoint = anchor
-	panel.BackgroundColor3 = Color3.fromRGB(24, 20, 38)
+	panel.BackgroundColor3 = Color3.fromRGB(16, 26, 34)
 	panel.BackgroundTransparency = 0.25
 	panel.BorderSizePixel = 0
 	panel.Parent = parent
@@ -49,7 +50,7 @@ local function makePanel(parent: Instance, name: string, size: UDim2, position: 
 end
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "WarungHud"
+gui.Name = "IslandHud"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
 gui.Parent = player:WaitForChild("PlayerGui")
@@ -58,7 +59,7 @@ gui.Parent = player:WaitForChild("PlayerGui")
 local wallet = makePanel(gui, "WalletPanel", UDim2.fromOffset(340, 86), UDim2.new(0.5, 0, 0, 10), Vector2.new(0.5, 0))
 local cashLabel = makeLabel(wallet, "Cash", UDim2.new(1, 0, 0, 40), UDim2.new(0, 0, 0, 2), "$0", 32, Color3.fromRGB(140, 255, 150))
 local incomeLabel = makeLabel(wallet, "Income", UDim2.new(1, 0, 0, 22), UDim2.new(0, 0, 0, 44), "Penghasilan: $0/dtk", 17, Color3.fromRGB(255, 240, 200))
-local castLabel = makeLabel(wallet, "Cast", UDim2.new(1, 0, 0, 20), UDim2.new(0, 0, 0, 64), "Brainrot di base: 0/8", 15, Color3.fromRGB(200, 220, 255))
+local castLabel = makeLabel(wallet, "Cast", UDim2.new(1, 0, 0, 20), UDim2.new(0, 0, 0, 64), "Brainrot di base: 0/6", 15, Color3.fromRGB(200, 220, 255))
 
 -- Top-right event panel.
 local eventPanel = makePanel(gui, "EventPanel", UDim2.fromOffset(250, 62), UDim2.new(1, -10, 0, 10), Vector2.new(1, 0))
@@ -98,7 +99,7 @@ local function makeButton(name: string, text: string, color: Color3): TextButton
 end
 
 local lockButton = makeButton("LockButton", "KUNCI BASE (30 dtk)", Color3.fromRGB(200, 60, 70))
-local rebirthButton = makeButton("RebirthButton", "REBIRTH", Color3.fromRGB(190, 140, 20))
+local rebirthButton = makeButton("RebirthButton", "REBIRTH", Color3.fromRGB(140, 80, 200))
 
 -- Toast line under the wallet panel.
 local toastLabel = makeLabel(gui, "Toast", UDim2.new(0.8, 0, 0, 34), UDim2.new(0.5, 0, 0, 108), "", 22, Color3.fromRGB(255, 255, 180))
@@ -154,13 +155,14 @@ hudUpdate.OnClientEvent:Connect(function(state)
 	end
 
 	if state.RebirthCost then
-		rebirthButton.Text = "REBIRTH " .. state.RebirthCostText .. " (+25%)"
-		rebirthButton.Visible = true
+		rebirthButton.Text = "REBIRTH $" .. state.RebirthCostText .. " (+25%)"
+		rebirthButton.BackgroundColor3 = Color3.fromRGB(140, 80, 200)
 	else
 		rebirthButton.Text = "REBIRTH MAKSIMAL"
 		rebirthButton.BackgroundColor3 = Color3.fromRGB(120, 120, 130)
 	end
 
+	local sky = state.IsNight and "MALAM" or "SIANG"
 	if state.EventPhase == "active" then
 		eventTitle.Text = "HUJAN METEOR SAMBAL!"
 		eventTitle.TextColor3 = Color3.fromRGB(255, 90, 60)
@@ -170,10 +172,10 @@ hudUpdate.OnClientEvent:Connect(function(state)
 		eventTitle.TextColor3 = Color3.fromRGB(255, 190, 80)
 		eventLabel.Text = "siap-siap... " .. state.EventSeconds .. " dtk"
 	else
-		eventTitle.Text = "HUJAN METEOR SAMBAL"
+		eventTitle.Text = "HUJAN METEOR SAMBAL • " .. sky
 		eventTitle.TextColor3 = Color3.fromRGB(255, 150, 90)
 		eventLabel.Text = "dalam " .. state.EventSeconds .. " dtk"
 	end
 end)
 
-showToast("Selamat datang di Warung Brainrot! Beli brainrot dari conveyor tengah.")
+showToast("Selamat datang di Brainrot Island! Beli brainrot dari conveyor di plaza.")
