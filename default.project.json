@@ -1,1 +1,96 @@
-{"name":"brainrot-island","tree":{"$className":"DataModel","Lighting":{"$properties":{"Ambient":[0.55,0.55,0.58],"Brightness":2,"ClockTime":14,"EnvironmentDiffuseScale":0.35,"EnvironmentSpecularScale":0.4,"GlobalShadows":true,"OutdoorAmbient":[0.5,0.5,0.55],"Outlines":false,"Technology":"Voxel"}},"Players":{"$properties":{"CharacterAutoLoads":true}},"ServerScriptService":{"Server":{"$path":"src/server"}},"SoundService":{"$properties":{"RespectFilteringEnabled":true}},"StarterPlayer":{"StarterPlayerScripts":{"Client":{"$path":"src/client"}}},"Workspace":{"$properties":{"FilteringEnabled":true}}}}
+{
+  "name": "brainrot-island",
+  "tree": {
+    "$className": "DataModel",
+    "Players": {
+      "$properties": {
+        "CharacterAutoLoads": false
+      }
+    },
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": {
+          "$path": "src/client"
+        }
+      }
+    },
+    "Workspace": {
+      "$properties": {
+        "FilteringEnabled": true
+      },
+      "Baseplate": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "BottomSurface": "Smooth",
+          "Color": [
+            0.29,
+            0.57,
+            0.29
+          ],
+          "Locked": true,
+          "Material": "Grass",
+          "Position": [
+            0,
+            -10,
+            0
+          ],
+          "Size": [
+            264,
+            20,
+            264
+          ],
+          "TopSurface": "Smooth"
+        }
+      },
+      "IslandSpawn": {
+        "$className": "SpawnLocation",
+        "$properties": {
+          "Anchored": true,
+          "Neutral": true,
+          "Position": [
+            0,
+            1,
+            14
+          ],
+          "Size": [
+            8,
+            1,
+            8
+          ]
+        }
+      }
+    },
+    "Lighting": {
+      "$properties": {
+        "Ambient": [
+          0.45,
+          0.45,
+          0.5
+        ],
+        "Brightness": 2,
+        "ClockTime": 8,
+        "EnvironmentDiffuseScale": 0.35,
+        "EnvironmentSpecularScale": 0.4,
+        "GlobalShadows": true,
+        "OutdoorAmbient": [
+          0.4,
+          0.4,
+          0.45
+        ],
+        "Outlines": false,
+        "Technology": "Voxel"
+      }
+    },
+    "SoundService": {
+      "$properties": {
+        "RespectFilteringEnabled": true
+      }
+    }
+  }
+}
