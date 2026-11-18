@@ -1,5 +1,5 @@
 {
-  "name": "house-dodge",
+  "name": "warung-brainrot",
   "tree": {
     "$className": "DataModel",
     "Players": {
@@ -49,12 +49,20 @@
     "Lighting": {
       "$properties": {
         "Ambient": [
-          0,
-          0,
-          0
+          0.32,
+          0.27,
+          0.42
         ],
         "Brightness": 2,
+        "ClockTime": 19.4,
+        "EnvironmentDiffuseScale": 0.35,
+        "EnvironmentSpecularScale": 0.4,
         "GlobalShadows": true,
+        "OutdoorAmbient": [
+          0.25,
+          0.24,
+          0.38
+        ],
         "Outlines": false,
         "Technology": "Voxel"
       }
