@@ -27,21 +27,41 @@
         "$className": "Part",
         "$properties": {
           "Anchored": true,
+          "BottomSurface": "Smooth",
           "Color": [
-            0.38823,
-            0.37254,
-            0.38823
+            0.29,
+            0.57,
+            0.29
           ],
           "Locked": true,
+          "Material": "Grass",
           "Position": [
             0,
             -10,
             0
           ],
           "Size": [
-            512,
+            264,
             20,
-            512
+            264
+          ],
+          "TopSurface": "Smooth"
+        }
+      },
+      "IslandSpawn": {
+        "$className": "SpawnLocation",
+        "$properties": {
+          "Anchored": true,
+          "Neutral": true,
+          "Position": [
+            0,
+            1,
+            14
+          ],
+          "Size": [
+            8,
+            1,
+            8
           ]
         }
       }

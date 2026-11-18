@@ -2,9 +2,9 @@
 --  * "Hujan Meteor Sambal" — every 90 seconds (60 calm, 10 warning,
 --    20 active) sambal meteors rain on the plaza. A marker disc shows
 --    each landing point from the moment the meteor spawns; the landed
---    meteor is a big neon ball with a light pillar, lives 12 seconds,
+--    meteor is a big neon ball with a light pillar, lives 20 seconds,
 --    and pays $50 x the collector's rebirth multiplier to whoever
---    touches it or stands within 5 studs.
+--    touches it or stands within 6 studs.
 --  * Day and night — Lighting starts at 08:00 and completes a full
 --    cycle every 360 seconds; night (19:00-05:00) doubles the rare
 --    conveyor weights (BrainrotData.Roll reads IsNight).
@@ -28,8 +28,8 @@ EventService.PeriodSeconds = 90
 EventService.WarnSeconds = 10
 EventService.ActiveSeconds = 20
 EventService.BonusCash = 50
-EventService.MeteorLifetime = 12
-EventService.CollectRadius = 5
+EventService.MeteorLifetime = 20
+EventService.CollectRadius = 6
 EventService.DayLengthSeconds = 360
 
 -- Set by init.server.luau: claims the golden entry for a player
@@ -47,6 +47,7 @@ local placedFolder: Folder? = nil
 local goldenEntry: PlayerState.Entry? = nil
 local goldenPillar: Part? = nil
 local isNight = false
+local announcedLanding = false -- first meteor touchdown of this active phase already announced
 
 function EventService.GetStatus(): { Phase: string, SecondsLeft: number }
 	return {
@@ -134,10 +135,15 @@ local function spawnMeteor()
 			* CFrame.Angles(0, 0, math.rad(90))
 		pillar.Color = Color3.fromRGB(255, 120, 50)
 		pillar.Material = Enum.Material.Neon
-		pillar.Transparency = 0.6
+		pillar.Transparency = 0.35
 		pillar.Anchored = true
 		pillar.CanCollide = false
 		pillar.Parent = folder
+
+		if not announcedLanding then
+			announcedLanding = true
+			notifyAll("Meteor Sambal jatuh di dekat plaza — dekati pilar cahayanya untuk bonus cash!")
+		end
 
 		local collected = false
 		local conn: RBXScriptConnection? = nil
@@ -287,6 +293,7 @@ function EventService.Start(world: any, notifyAllFn: (string) -> (), notifyFn: (
 			task.wait(EventService.WarnSeconds)
 
 			phase = "active"
+			announcedLanding = false
 			phaseEndsAt = os.clock() + EventService.ActiveSeconds
 			notifyAll("HUJAN METEOR SAMBAL! Dekati meteor untuk bonus cash!")
 			local activeUntil = os.clock() + EventService.ActiveSeconds

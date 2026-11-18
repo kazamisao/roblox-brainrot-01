@@ -31,6 +31,17 @@ local SLOT_OFFSETS = {
 	Vector3.new(-6.5, 0, 3.6), Vector3.new(0, 0, 3.6), Vector3.new(6.5, 0, 3.6),
 }
 
+-- One saturated awning color per base, so each base reads as its own
+-- little shop stall from across the plaza.
+local BASE_ROOF_COLORS = {
+	Color3.fromRGB(255, 70, 70),
+	Color3.fromRGB(255, 150, 40),
+	Color3.fromRGB(255, 215, 60),
+	Color3.fromRGB(80, 220, 90),
+	Color3.fromRGB(60, 200, 255),
+	Color3.fromRGB(180, 100, 255),
+}
+
 local function part(parent: Instance, name: string, size: Vector3, cf: CFrame, color: Color3, material: Enum.Material?, anchored: boolean?): Part
 	local p = Instance.new("Part")
 	p.Name = name
@@ -94,6 +105,21 @@ function WorldBuilder.Build()
 	part(world, "Plaza", Vector3.new(120, 1, 62), CFrame.new(0, 0.5, 0),
 		Color3.fromRGB(120, 91, 62), Enum.Material.WoodPlanks)
 
+	-- Bright neon trim around the plaza edges, and a golden walkway
+	-- from the spawn pad straight to the belt.
+	local trimNS = Color3.fromRGB(255, 70, 160)
+	local trimEW = Color3.fromRGB(60, 220, 255)
+	part(world, "PlazaTrimN", Vector3.new(120, 0.25, 1), CFrame.new(0, WorldBuilder.FloorTop + 0.12, -30.4),
+		trimNS, Enum.Material.Neon)
+	part(world, "PlazaTrimS", Vector3.new(120, 0.25, 1), CFrame.new(0, WorldBuilder.FloorTop + 0.12, 30.4),
+		trimNS, Enum.Material.Neon)
+	part(world, "PlazaTrimE", Vector3.new(1, 0.25, 62), CFrame.new(59.4, WorldBuilder.FloorTop + 0.12, 0),
+		trimEW, Enum.Material.Neon)
+	part(world, "PlazaTrimW", Vector3.new(1, 0.25, 62), CFrame.new(-59.4, WorldBuilder.FloorTop + 0.12, 0),
+		trimEW, Enum.Material.Neon)
+	part(world, "SpawnWalkway", Vector3.new(4, 0.12, 5), CFrame.new(0, WorldBuilder.FloorTop + 0.06, 7.5),
+		Color3.fromRGB(255, 200, 60), Enum.Material.SmoothPlastic)
+
 	-- The conveyor: a dark belt down the middle with neon rails.
 	part(world, "Belt", Vector3.new(104, 0.6, 9), CFrame.new(0, 1.3, 0),
 		Color3.fromRGB(38, 38, 46), Enum.Material.Metal)
@@ -105,6 +131,25 @@ function WorldBuilder.Build()
 		part(world, "BeltPost", Vector3.new(1.2, 3.4, 10), CFrame.new(endX, 1.7, 0),
 			Color3.fromRGB(70, 70, 84), Enum.Material.Metal)
 	end
+
+	-- Neon chevrons along both sides of the belt, pointing the way the
+	-- brainrots walk (+X), and a start sign over the west belt post.
+	local chevronColors = { Color3.fromRGB(255, 140, 0), Color3.fromRGB(0, 220, 255) }
+	for ci, chevX in { -40, -20, 0, 20, 40 } do
+		local chevColor = chevronColors[(ci - 1) % #chevronColors + 1]
+		for _, side in { -3.1, 3.1 } do
+			part(world, "BeltChevron", Vector3.new(1.7, 0.15, 0.55),
+				CFrame.new(chevX, WorldBuilder.BeltTopY + 0.08, side - 0.38) * CFrame.Angles(0, math.rad(-35), 0),
+				chevColor, Enum.Material.Neon)
+			part(world, "BeltChevron", Vector3.new(1.7, 0.15, 0.55),
+				CFrame.new(chevX, WorldBuilder.BeltTopY + 0.08, side + 0.38) * CFrame.Angles(0, math.rad(35), 0),
+				chevColor, Enum.Material.Neon)
+		end
+	end
+	local startSign = part(world, "BeltStartSign", Vector3.new(5, 2, 0.5), CFrame.new(-52, 4.4, 0),
+		Color3.fromRGB(60, 200, 90), Enum.Material.SmoothPlastic)
+	boardText(startSign, Enum.NormalId.Front, "MULAI", Color3.new(1, 1, 1))
+	boardText(startSign, Enum.NormalId.Back, "MULAI", Color3.new(1, 1, 1))
 
 	-- Spawn, on the plaza south of the belt.
 	local spawn = Instance.new("SpawnLocation")
@@ -125,23 +170,97 @@ function WorldBuilder.Build()
 		"BRAINROT ISLAND\nBeli dari conveyor - pajang di base\nCuri punya orang - kunci basemu\nRebirth: penghasilan +25% per level",
 		Color3.new(1, 1, 1))
 
-	-- Palm trees around the rim, clear of the plaza and the bases.
-	for i = 1, 30 do
-		local angle = math.rad(i * 12)
-		local radius = 78 + (i % 4) * 12
-		local x, z = math.cos(angle) * radius, math.sin(angle) * radius
-		local scale = 0.8 + (i % 3) * 0.12
-		local tree = Instance.new("Model")
-		tree.Name = "PalmTree"
-		tree.Parent = world
-		local trunk = part(tree, "Trunk", Vector3.new(12 * scale, 2 * scale, 2 * scale),
-			CFrame.new(x, 6 * scale, z) * CFrame.Angles(0, 0, math.rad(90)),
+	-- A welcome arch over the spawn pad: two orange pillars and a
+	-- purple title board with a subtitle, readable from both sides.
+	for _, pillarX in { -5.5, 5.5 } do
+		part(world, "ArchPillar", Vector3.new(1.2, 7, 1.2), CFrame.new(pillarX, WorldBuilder.FloorTop + 3.5, 14),
+			Color3.fromRGB(255, 120, 40), Enum.Material.SmoothPlastic)
+	end
+	local archBoard = part(world, "ArchBoard", Vector3.new(13, 2.6, 0.8), CFrame.new(0, WorldBuilder.FloorTop + 8.3, 14),
+		Color3.fromRGB(140, 60, 220), Enum.Material.SmoothPlastic)
+	boardText(archBoard, Enum.NormalId.Front, "BRAINROT ISLAND", Color3.new(1, 1, 1))
+	boardText(archBoard, Enum.NormalId.Back, "BRAINROT ISLAND", Color3.new(1, 1, 1))
+	local archSub = part(world, "ArchSubBoard", Vector3.new(13, 1.4, 0.8), CFrame.new(0, WorldBuilder.FloorTop + 6.3, 14),
+		Color3.fromRGB(140, 60, 220), Enum.Material.SmoothPlastic)
+	boardText(archSub, Enum.NormalId.Front, "Beli brainrot di conveyor • Kumpulkan cash • Rebirth!", Color3.new(1, 1, 1))
+	boardText(archSub, Enum.NormalId.Back, "Beli brainrot di conveyor • Kumpulkan cash • Rebirth!", Color3.new(1, 1, 1))
+
+	-- Palm trees around the island rim, clear of the plaza and the
+	-- bases: a 7-stud trunk standing on the grass (y = IslandTop) with
+	-- its canopy centered right at the trunk top, coconuts underneath.
+	for i = 1, 14 do
+		local angle = math.rad(i * (360 / 14) + 10)
+		local x, z = math.cos(angle) * 100, math.sin(angle) * 100
+		local trunk = part(world, "PalmTrunk", Vector3.new(7, 1.3, 1.3),
+			CFrame.new(x, WorldBuilder.IslandTop + 3.5, z) * CFrame.Angles(0, 0, math.rad(90)),
 			Color3.fromRGB(111, 75, 43), Enum.Material.Wood)
 		trunk.Shape = Enum.PartType.Cylinder
-		local crown = part(tree, "Leaves", Vector3.new(10 * scale, 5 * scale, 10 * scale),
-			CFrame.new(x, 12 * scale, z), Color3.fromRGB(35, 116, 54), Enum.Material.Grass)
-		crown.Shape = Enum.PartType.Ball
-		tree.PrimaryPart = trunk
+		local canopy = part(world, "PalmCanopy", Vector3.new(6.5, 5, 6.5),
+			CFrame.new(x, WorldBuilder.IslandTop + 7.2, z), Color3.fromRGB(35, 150, 60), Enum.Material.Grass)
+		canopy.Shape = Enum.PartType.Ball
+		for c = 1, 2 do
+			local nut = part(world, "Coconut", Vector3.new(0.9, 0.9, 0.9),
+				CFrame.new(x + (c == 1 and 1.1 or -1.2), WorldBuilder.IslandTop + 6.3, z + (c == 1 and 0.6 or -0.7)),
+				Color3.fromRGB(90, 60, 35), Enum.Material.SmoothPlastic)
+			nut.Shape = Enum.PartType.Ball
+		end
+	end
+
+	-- Scatter props on the grass, outside the plaza and away from the
+	-- bases: rocks, squashed bushes and neon flowers.
+	local rockSpots = {
+		{ -80, -60 }, { -100, 20 }, { -70, 80 }, { 75, -85 }, { 95, 55 },
+		{ 115, -20 }, { -120, -70 }, { 70, 95 }, { -120, 60 }, { 120, 90 },
+	}
+	for i, spot in rockSpots do
+		local rockSize = 1.6 + (i % 4) * 0.6
+		local rock = part(world, "Rock", Vector3.new(rockSize, rockSize * 0.8, rockSize),
+			CFrame.new(spot[1], WorldBuilder.IslandTop + rockSize * 0.25, spot[2])
+				* CFrame.Angles(0, math.rad(i * 37), 0),
+			Color3.fromRGB(130, 130, 138), Enum.Material.Slate)
+		if i % 2 == 0 then
+			rock.Shape = Enum.PartType.Ball
+		end
+	end
+	local bushSpots = {
+		{ -75, -20 }, { -95, -80 }, { -65, 45 }, { -110, 85 }, { 80, 10 },
+		{ 100, -60 }, { 68, -95 }, { 118, 30 }, { -118, -40 }, { 85, 80 },
+		{ -85, 100 }, { 105, 100 }, { -105, -15 }, { 66, -60 },
+	}
+	for _, spot in bushSpots do
+		local bush = part(world, "Bush", Vector3.new(2.6, 1.6, 2.6),
+			CFrame.new(spot[1], WorldBuilder.IslandTop + 0.7, spot[2]),
+			Color3.fromRGB(40, 140, 60), Enum.Material.Grass)
+		bush.Shape = Enum.PartType.Ball
+	end
+	local flowerColors = {
+		Color3.fromRGB(255, 80, 180), Color3.fromRGB(255, 220, 60),
+		Color3.fromRGB(80, 220, 255), Color3.fromRGB(255, 140, 40),
+		Color3.fromRGB(190, 110, 255),
+	}
+	for i = 1, 20 do
+		local side = (i <= 10) and -1 or 1
+		local flowerZ = -27 + ((i - 1) % 10) * 6
+		local flower = part(world, "Flower", Vector3.new(0.55, 0.55, 0.55),
+			CFrame.new(side * 64, WorldBuilder.IslandTop + 0.3, flowerZ),
+			flowerColors[(i - 1) % #flowerColors + 1], Enum.Material.Neon)
+		flower.Shape = Enum.PartType.Ball
+	end
+
+	-- Lamp posts around the plaza corners and belt ends.
+	for _, spot in { { -58, -29 }, { 58, -29 }, { -58, 29 }, { 58, 29 }, { -58, 0 }, { 58, 0 } } do
+		part(world, "LampPole", Vector3.new(0.35, 4.5, 0.35),
+			CFrame.new(spot[1], WorldBuilder.FloorTop + 2.25, spot[2]),
+			Color3.fromRGB(40, 40, 48), Enum.Material.Metal)
+		local bulb = part(world, "LampBulb", Vector3.new(1.1, 1.1, 1.1),
+			CFrame.new(spot[1], WorldBuilder.FloorTop + 4.9, spot[2]),
+			Color3.fromRGB(255, 230, 120), Enum.Material.Neon)
+		bulb.Shape = Enum.PartType.Ball
+		local lampLight = Instance.new("PointLight")
+		lampLight.Color = Color3.fromRGB(255, 220, 130)
+		lampLight.Range = 18
+		lampLight.Brightness = 2
+		lampLight.Parent = bulb
 	end
 
 	-- Six bases in two rows facing the plaza.
@@ -183,6 +302,17 @@ function WorldBuilder.Build()
 			Color3.fromRGB(80, 220, 255), Enum.Material.Neon)
 		pad.Shape = Enum.PartType.Cylinder
 
+		-- A colored awning over the base's back edge on two posts, so
+		-- the base reads as a little shop stall in its own color.
+		part(world, "BaseRoof" .. i, Vector3.new(25, 0.5, 6),
+			CFrame.new(cx, WorldBuilder.FloorTop + 6.5, cz + row * 7.5),
+			BASE_ROOF_COLORS[i], Enum.Material.SmoothPlastic)
+		for _, postX in { cx - 11, cx + 11 } do
+			part(world, "BaseRoofPost" .. i, Vector3.new(0.4, 6.3, 0.4),
+				CFrame.new(postX, WorldBuilder.FloorTop + 3.15, cz + row * 7.5),
+				Color3.fromRGB(70, 50, 35), Enum.Material.Wood)
+		end
+
 		bases[i] = {
 			Index = i,
 			Center = center,
@@ -202,6 +332,62 @@ function WorldBuilder.Build()
 		Color3.fromRGB(60, 25, 85), Enum.Material.Wood)
 	boardText(stallSign, Enum.NormalId.Front, "REBIRTH\n+25% penghasilan per level",
 		Color3.fromRGB(230, 190, 255))
+
+	-- Beach umbrellas on the sand rims (beach surface is y = 0.7).
+	local umbrellaColors = {
+		Color3.fromRGB(255, 90, 90), Color3.fromRGB(255, 170, 40),
+		Color3.fromRGB(80, 200, 255), Color3.fromRGB(255, 110, 200),
+	}
+	for ui, spot in { { -40, -118 }, { 35, -118 }, { -20, 118 }, { 50, 118 } } do
+		local pole = part(world, "UmbrellaPole", Vector3.new(3.2, 0.25, 0.25),
+			CFrame.new(spot[1], 0.7 + 1.6, spot[2]) * CFrame.Angles(0, 0, math.rad(90)),
+			Color3.fromRGB(240, 240, 240), Enum.Material.Metal)
+		pole.Shape = Enum.PartType.Cylinder
+		local umbrellaTop = part(world, "UmbrellaCanopy", Vector3.new(5, 1.2, 5),
+			CFrame.new(spot[1], 0.7 + 3.6, spot[2]), umbrellaColors[ui], Enum.Material.SmoothPlastic)
+		umbrellaTop.Shape = Enum.PartType.Ball
+	end
+
+	-- A small wooden dock reaching into the sea on the south side.
+	part(world, "Dock", Vector3.new(6, 0.5, 26), CFrame.new(10, -0.25, 143),
+		Color3.fromRGB(120, 91, 62), Enum.Material.WoodPlanks)
+	for _, postSpot in { { 7.5, 133 }, { 12.5, 133 }, { 7.5, 153 }, { 12.5, 153 } } do
+		local dockPost = part(world, "DockPost", Vector3.new(6, 0.5, 0.5),
+			CFrame.new(postSpot[1], -3, postSpot[2]) * CFrame.Angles(0, 0, math.rad(90)),
+			Color3.fromRGB(96, 74, 54), Enum.Material.Wood)
+		dockPost.Shape = Enum.PartType.Cylinder
+	end
+
+	-- A volcano backdrop in the north-west corner: three shrinking
+	-- cylinders stacked into a cone, with a neon lava disc on top.
+	local volcanoColor = Color3.fromRGB(70, 70, 78)
+	local volcanoTier1 = part(world, "VolcanoBase", Vector3.new(9, 36, 36),
+		CFrame.new(-105, 4.5, -105) * CFrame.Angles(0, 0, math.rad(90)), volcanoColor, Enum.Material.Slate)
+	volcanoTier1.Shape = Enum.PartType.Cylinder
+	local volcanoTier2 = part(world, "VolcanoMid", Vector3.new(8, 26, 26),
+		CFrame.new(-105, 13, -105) * CFrame.Angles(0, 0, math.rad(90)), volcanoColor, Enum.Material.Slate)
+	volcanoTier2.Shape = Enum.PartType.Cylinder
+	local volcanoTier3 = part(world, "VolcanoTop", Vector3.new(7, 17, 17),
+		CFrame.new(-105, 20.5, -105) * CFrame.Angles(0, 0, math.rad(90)), volcanoColor, Enum.Material.Slate)
+	volcanoTier3.Shape = Enum.PartType.Cylinder
+	local lava = part(world, "VolcanoLava", Vector3.new(0.6, 13, 13),
+		CFrame.new(-105, 24.2, -105) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(255, 100, 20), Enum.Material.Neon)
+	lava.Shape = Enum.PartType.Cylinder
+	local lavaLight = Instance.new("PointLight")
+	lavaLight.Color = Color3.fromRGB(255, 120, 40)
+	lavaLight.Range = 34
+	lavaLight.Brightness = 2
+	lavaLight.Parent = lava
+
+	-- Flat white clouds floating over the island.
+	for _, spot in { { -60, 58, -40 }, { 30, 64, -70 }, { 80, 60, 30 }, { -20, 68, 60 }, { -90, 62, 50 }, { 55, 56, -10 } } do
+		local cloud = part(world, "Cloud", Vector3.new(16, 3, 10),
+			CFrame.new(spot[1], spot[2], spot[3]), Color3.fromRGB(255, 255, 255), Enum.Material.SmoothPlastic)
+		cloud.Shape = Enum.PartType.Ball
+		cloud.Transparency = 0.1
+		cloud.CanCollide = false
+	end
 
 	return {
 		Folder = world,
