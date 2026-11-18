@@ -49,13 +49,13 @@ local function spawnMeteor()
 	if not meteorsFolder then
 		return
 	end
-	local x = rng:NextNumber(-58, 58)
-	local z = rng:NextNumber(-34, 34)
+	local x = rng:NextNumber(-45, 45)
+	local z = rng:NextNumber(-28, 28)
 	local target = Vector3.new(x, WorldBuilder.FloorTop + 1.1, z)
 	local meteor = Instance.new("Part")
 	meteor.Name = "MeteorSambal"
 	meteor.Shape = Enum.PartType.Ball
-	meteor.Size = Vector3.new(2.2, 2.2, 2.2)
+	meteor.Size = Vector3.new(3.2, 3.2, 3.2)
 	meteor.Color = Color3.fromRGB(255, 90, 40)
 	meteor.Material = Enum.Material.Neon
 	meteor.Anchored = true
@@ -64,9 +64,23 @@ local function spawnMeteor()
 	meteor.Parent = meteorsFolder
 	local light = Instance.new("PointLight")
 	light.Color = Color3.fromRGB(255, 120, 50)
-	light.Range = 12
+	light.Range = 16
 	light.Brightness = 2
 	light.Parent = meteor
+
+	-- Landing marker: a flat neon disc marks the target spot from the
+	-- moment the meteor spawns, so players can run to it while it falls.
+	local marker = Instance.new("Part")
+	marker.Name = "MeteorLandingMarker"
+	marker.Shape = Enum.PartType.Cylinder
+	marker.Size = Vector3.new(0.25, 4.8, 4.8)
+	marker.Color = Color3.fromRGB(255, 60, 30)
+	marker.Material = Enum.Material.Neon
+	marker.Transparency = 0.35
+	marker.Anchored = true
+	marker.CanCollide = false
+	marker.CFrame = CFrame.new(x, WorldBuilder.FloorTop + 0.15, z) * CFrame.Angles(0, 0, math.rad(90))
+	marker.Parent = meteorsFolder
 
 	task.spawn(function()
 		-- Fall for just under a second, trailing down to the plaza.
@@ -79,39 +93,81 @@ local function spawnMeteor()
 			local t = math.min(1, elapsed / duration)
 			meteor.CFrame = CFrame.new(startPos:Lerp(target, t * t))
 		end
+		if marker.Parent then
+			marker:Destroy()
+		end
 		if not meteor.Parent then
 			return
 		end
 		meteor.CFrame = CFrame.new(target)
 		dropCarriersNear(target)
-		-- Landed: collectible for a few seconds, then it burns out.
+		-- Landed beacon: a thin pillar of light above the meteor, visible
+		-- from across the plaza until the meteor is collected or burns out.
+		local pillar = Instance.new("Part")
+		pillar.Name = "MeteorLightPillar"
+		pillar.Shape = Enum.PartType.Cylinder
+		pillar.Size = Vector3.new(30, 1.2, 1.2)
+		pillar.Color = Color3.fromRGB(255, 110, 40)
+		pillar.Material = Enum.Material.Neon
+		pillar.Transparency = 0.6
+		pillar.Anchored = true
+		pillar.CanCollide = false
+		pillar.CFrame = CFrame.new(target.X, WorldBuilder.FloorTop + 15, target.Z) * CFrame.Angles(0, 0, math.rad(90))
+		pillar.Parent = meteorsFolder
+		-- Landed: collectible for a while, then it burns out. Every
+		-- collection path pays through collect(), so a meteor pays once.
 		local collected = false
-		local conn: RBXScriptConnection? = nil
-		conn = meteor.Touched:Connect(function(hit)
+		local function collect(player: Player)
 			if collected then
 				return
 			end
-			local character = hit.Parent
-			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-			if not humanoid then
-				return
-			end
-			local player = game:GetService("Players"):GetPlayerFromCharacter(character)
-			local record = player and PlayerState.Records[player]
+			local record = PlayerState.Records[player]
 			if not record then
 				return
 			end
 			collected = true
 			local bonus = math.floor(EventService.BonusCash * PlayerState.Multiplier(record))
 			PlayerState.AddCash(record, bonus)
-			if conn then
-				conn:Disconnect()
+			if pillar.Parent then
+				pillar:Destroy()
 			end
 			meteor:Destroy()
+		end
+		local conn: RBXScriptConnection? = nil
+		conn = meteor.Touched:Connect(function(hit)
+			local character = hit.Parent
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			if not humanoid then
+				return
+			end
+			local player = game:GetService("Players"):GetPlayerFromCharacter(character)
+			if player then
+				collect(player)
+			end
 		end)
-		task.wait(6)
+		-- Proximity poll: the Touched hitbox alone is easy to miss, so a
+		-- landed meteor also pays the first player who gets close enough.
+		task.spawn(function()
+			while not collected and meteor.Parent do
+				for _, player in game:GetService("Players"):GetPlayers() do
+					local character = player.Character
+					local hrp = character and character:FindFirstChild("HumanoidRootPart")
+					if hrp and (hrp.Position - meteor.Position).Magnitude <= 5 then
+						collect(player)
+						break
+					end
+				end
+				if not collected and meteor.Parent then
+					task.wait(0.15)
+				end
+			end
+		end)
+		task.wait(12)
 		if conn then
 			conn:Disconnect()
+		end
+		if pillar.Parent then
+			pillar:Destroy()
 		end
 		if meteor.Parent then
 			meteor:Destroy()
