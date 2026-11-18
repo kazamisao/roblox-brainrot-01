@@ -34,10 +34,10 @@ BrainrotData.Cast = {
 		Price = 25,
 		PerSec = 1,
 		Weight = 40,
-		Color = Color3.fromRGB(168, 124, 78),
+		Color = Color3.fromRGB(180, 133, 84),
 		Accent = Color3.fromRGB(120, 84, 50),
 		Shape = Enum.PartType.Ball,
-		BodySize = Vector3.new(2.4, 2.4, 2.4),
+		BodySize = Vector3.new(3.6, 3.6, 3.6),
 	},
 	{
 		Name = "Kerupuk Terbang",
@@ -48,7 +48,7 @@ BrainrotData.Cast = {
 		Color = Color3.fromRGB(233, 203, 141),
 		Accent = Color3.fromRGB(198, 158, 92),
 		Shape = Enum.PartType.Cylinder,
-		BodySize = Vector3.new(3.2, 0.7, 3.2),
+		BodySize = Vector3.new(4.8, 1.1, 4.8),
 	},
 	{
 		Name = "Sate Berjalan",
@@ -56,10 +56,10 @@ BrainrotData.Cast = {
 		Price = 250,
 		PerSec = 8,
 		Weight = 16,
-		Color = Color3.fromRGB(150, 84, 44),
+		Color = Color3.fromRGB(180, 101, 53),
 		Accent = Color3.fromRGB(96, 50, 24),
 		Shape = Enum.PartType.Block,
-		BodySize = Vector3.new(1.7, 3.6, 1.7),
+		BodySize = Vector3.new(2.6, 5.4, 2.6),
 	},
 	{
 		Name = "Bakso Raksasa",
@@ -67,10 +67,10 @@ BrainrotData.Cast = {
 		Price = 1000,
 		PerSec = 25,
 		Weight = 9,
-		Color = Color3.fromRGB(146, 108, 82),
+		Color = Color3.fromRGB(180, 133, 101),
 		Accent = Color3.fromRGB(104, 74, 52),
 		Shape = Enum.PartType.Ball,
-		BodySize = Vector3.new(3.6, 3.6, 3.6),
+		BodySize = Vector3.new(5.4, 5.4, 5.4),
 	},
 	{
 		Name = "Rendang Sakti",
@@ -78,10 +78,10 @@ BrainrotData.Cast = {
 		Price = 5000,
 		PerSec = 80,
 		Weight = 5,
-		Color = Color3.fromRGB(112, 52, 30),
+		Color = Color3.fromRGB(180, 84, 48),
 		Accent = Color3.fromRGB(74, 32, 18),
 		Shape = Enum.PartType.Block,
-		BodySize = Vector3.new(3.4, 2.3, 3.4),
+		BodySize = Vector3.new(5.1, 3.5, 5.1),
 	},
 	{
 		Name = "Tungku Sate Emas",
@@ -92,7 +92,7 @@ BrainrotData.Cast = {
 		Color = Color3.fromRGB(255, 196, 40),
 		Accent = Color3.fromRGB(255, 120, 40),
 		Shape = Enum.PartType.Block,
-		BodySize = Vector3.new(3.2, 2.7, 3.2),
+		BodySize = Vector3.new(4.8, 4.1, 4.8),
 	},
 	{
 		Name = "Naga Sambal Legendaris",
@@ -103,7 +103,7 @@ BrainrotData.Cast = {
 		Color = Color3.fromRGB(214, 44, 40),
 		Accent = Color3.fromRGB(255, 140, 40),
 		Shape = Enum.PartType.Ball,
-		BodySize = Vector3.new(4.4, 4.4, 4.4),
+		BodySize = Vector3.new(6.6, 6.6, 6.6),
 	},
 }
 

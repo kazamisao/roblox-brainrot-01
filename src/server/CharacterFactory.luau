@@ -45,6 +45,16 @@ function CharacterFactory.Build(def: BrainrotData.Def): (Model, Part)
 		body.CFrame = CFrame.Angles(0, 0, math.rad(90))
 	end
 
+	-- A flat neon glow disc under the body in the rarity colour, so a
+	-- brainrot reads from across the plaza even before its nameplate
+	-- does. A cylinder's axis runs along X, so rotate it flat.
+	local discDiameter = math.max(bodySize.X, bodySize.Z) * 1.15
+	local disc = part(model, "GlowDisc", Vector3.new(discDiameter, 0.18, discDiameter),
+		CFrame.new(0, -(bodySize.Y / 2) + 0.09, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		BrainrotData.RarityColors[def.Rarity] or Color3.new(1, 1, 1), Enum.Material.Neon)
+	disc.Shape = Enum.PartType.Cylinder
+	disc.Transparency = 0.25
+
 	local headSize = math.max(bodySize.X, bodySize.Z) * 0.55
 	local headY = bodySize.Y / 2 + headSize / 2 - 0.15
 	local head = part(model, "Head", Vector3.new(headSize, headSize, headSize),
@@ -68,8 +78,8 @@ function CharacterFactory.Build(def: BrainrotData.Def): (Model, Part)
 
 	local plate = Instance.new("BillboardGui")
 	plate.Name = "Nameplate"
-	plate.Size = UDim2.new(7.5, 0, 2, 0)
-	plate.StudsOffset = Vector3.new(0, bodySize.Y / 2 + 1.6, 0)
+	plate.Size = UDim2.new(9, 0, 2.4, 0)
+	plate.StudsOffset = Vector3.new(0, bodySize.Y / 2 + 2, 0)
 	plate.AlwaysOnTop = true
 	plate.Parent = body
 

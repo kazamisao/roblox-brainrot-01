@@ -124,9 +124,9 @@ function WorldBuilder.Build()
 	part(world, "Belt", Vector3.new(104, 0.6, 9), CFrame.new(0, 1.3, 0),
 		Color3.fromRGB(38, 38, 46), Enum.Material.Metal)
 	part(world, "BeltRailA", Vector3.new(104, 0.5, 0.5), CFrame.new(0, 1.85, -4.7),
-		Color3.fromRGB(255, 170, 40), Enum.Material.Neon)
+		Color3.fromRGB(255, 235, 60), Enum.Material.Neon)
 	part(world, "BeltRailB", Vector3.new(104, 0.5, 0.5), CFrame.new(0, 1.85, 4.7),
-		Color3.fromRGB(255, 170, 40), Enum.Material.Neon)
+		Color3.fromRGB(255, 235, 60), Enum.Material.Neon)
 	for _, endX in { -52, 52 } do
 		part(world, "BeltPost", Vector3.new(1.2, 3.4, 10), CFrame.new(endX, 1.7, 0),
 			Color3.fromRGB(70, 70, 84), Enum.Material.Metal)
@@ -185,6 +185,48 @@ function WorldBuilder.Build()
 	boardText(archSub, Enum.NormalId.Front, "Beli brainrot di conveyor • Kumpulkan cash • Rebirth!", Color3.new(1, 1, 1))
 	boardText(archSub, Enum.NormalId.Back, "Beli brainrot di conveyor • Kumpulkan cash • Rebirth!", Color3.new(1, 1, 1))
 
+	-- A giant floating title over the plaza's north side, readable
+	-- from the spawn pad: a dark purple board held up by two neon
+	-- beams, its text showing on both faces.
+	local titleBoard = part(world, "TitleBoard", Vector3.new(30, 7, 0.8), CFrame.new(0, 26, -20),
+		Color3.fromRGB(60, 25, 95), Enum.Material.SmoothPlastic)
+	boardText(titleBoard, Enum.NormalId.Front, "BRAINROT ISLAND", Color3.new(1, 1, 1))
+	boardText(titleBoard, Enum.NormalId.Back, "BRAINROT ISLAND", Color3.new(1, 1, 1))
+	for _, beamX in { -14, 14 } do
+		part(world, "TitleBeam", Vector3.new(0.8, 22, 0.8), CFrame.new(beamX, 12, -20),
+			Color3.fromRGB(255, 70, 160), Enum.Material.Neon)
+	end
+
+	-- A rainbow arch over the belt start — the gateway every brainrot
+	-- walks through. Five saturated segments on a semicircle spanning
+	-- z -7..7, peaking at height 9.
+	local archColors = {
+		Color3.fromRGB(255, 60, 60), Color3.fromRGB(255, 150, 40),
+		Color3.fromRGB(255, 220, 60), Color3.fromRGB(80, 220, 90),
+		Color3.fromRGB(70, 140, 255),
+	}
+	for seg = 0, 4 do
+		local a = math.rad(seg * 45)
+		local segPart = part(world, "RainbowArch", Vector3.new(1.2, 4.8, 1.2),
+			CFrame.new(WorldBuilder.BeltStartX, 2 + 7 * math.sin(a), -7 * math.cos(a))
+				* CFrame.Angles(a, 0, 0),
+			archColors[seg + 1], Enum.Material.SmoothPlastic)
+		segPart.CanCollide = false
+	end
+
+	-- Saturated quadrant inlays inset into the plaza floor, clear of
+	-- the belt strip and the spawn walkway.
+	local inlayColors = {
+		Color3.fromRGB(255, 70, 70), Color3.fromRGB(70, 140, 255),
+		Color3.fromRGB(80, 220, 90), Color3.fromRGB(255, 220, 60),
+	}
+	local inlaySpots = { { -32, -17 }, { 32, -17 }, { -32, 17 }, { 32, 17 } }
+	for idx, spot in inlaySpots do
+		part(world, "PlazaInlay" .. idx, Vector3.new(26, 0.06, 14),
+			CFrame.new(spot[1], WorldBuilder.FloorTop + 0.03, spot[2]),
+			inlayColors[idx], Enum.Material.SmoothPlastic)
+	end
+
 	-- Palm trees around the island rim, clear of the plaza and the
 	-- bases: a 7-stud trunk standing on the grass (y = IslandTop) with
 	-- its canopy centered right at the trunk top, coconuts underneath.
@@ -203,6 +245,25 @@ function WorldBuilder.Build()
 				CFrame.new(x + (c == 1 and 1.1 or -1.2), WorldBuilder.IslandTop + 6.3, z + (c == 1 and 0.6 or -0.7)),
 				Color3.fromRGB(90, 60, 35), Enum.Material.SmoothPlastic)
 			nut.Shape = Enum.PartType.Ball
+		end
+	end
+
+	-- Four giant palms towering over the plaza corners, just outside
+	-- the trim — the rim palms' construction at double scale.
+	for _, spot in { { -64, -36 }, { 64, -36 }, { -64, 36 }, { 64, 36 } } do
+		local gx, gz = spot[1], spot[2]
+		local gTrunk = part(world, "GiantPalmTrunk", Vector3.new(14, 1.8, 1.8),
+			CFrame.new(gx, WorldBuilder.IslandTop + 7, gz) * CFrame.Angles(0, 0, math.rad(90)),
+			Color3.fromRGB(111, 75, 43), Enum.Material.Wood)
+		gTrunk.Shape = Enum.PartType.Cylinder
+		local gCanopy = part(world, "GiantPalmCanopy", Vector3.new(12, 9, 12),
+			CFrame.new(gx, WorldBuilder.IslandTop + 14.5, gz), Color3.fromRGB(35, 150, 60), Enum.Material.Grass)
+		gCanopy.Shape = Enum.PartType.Ball
+		for c = 1, 3 do
+			local gNut = part(world, "GiantCoconut", Vector3.new(1.6, 1.6, 1.6),
+				CFrame.new(gx + (c - 2) * 2.2, WorldBuilder.IslandTop + 13.2, gz + ((c % 2) * 2 - 1) * 1.4),
+				Color3.fromRGB(90, 60, 35), Enum.Material.SmoothPlastic)
+			gNut.Shape = Enum.PartType.Ball
 		end
 	end
 
@@ -249,11 +310,11 @@ function WorldBuilder.Build()
 
 	-- Lamp posts around the plaza corners and belt ends.
 	for _, spot in { { -58, -29 }, { 58, -29 }, { -58, 29 }, { 58, 29 }, { -58, 0 }, { 58, 0 } } do
-		part(world, "LampPole", Vector3.new(0.35, 4.5, 0.35),
-			CFrame.new(spot[1], WorldBuilder.FloorTop + 2.25, spot[2]),
+		part(world, "LampPole", Vector3.new(0.35, 5, 0.35),
+			CFrame.new(spot[1], WorldBuilder.FloorTop + 2.5, spot[2]),
 			Color3.fromRGB(40, 40, 48), Enum.Material.Metal)
-		local bulb = part(world, "LampBulb", Vector3.new(1.1, 1.1, 1.1),
-			CFrame.new(spot[1], WorldBuilder.FloorTop + 4.9, spot[2]),
+		local bulb = part(world, "LampBulb", Vector3.new(1.3, 1.3, 1.3),
+			CFrame.new(spot[1], WorldBuilder.FloorTop + 5.4, spot[2]),
 			Color3.fromRGB(255, 230, 120), Enum.Material.Neon)
 		bulb.Shape = Enum.PartType.Ball
 		local lampLight = Instance.new("PointLight")
@@ -388,6 +449,8 @@ function WorldBuilder.Build()
 		cloud.Transparency = 0.1
 		cloud.CanCollide = false
 	end
+
+	print("[BrainrotIsland] world built OK — bases:", #bases)
 
 	return {
 		Folder = world,

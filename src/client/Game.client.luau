@@ -1,7 +1,7 @@
 -- Brainrot Island — client HUD.
 -- The 3D game is the world itself; this script only draws the screen
 -- over it: cash and income up top (clear of Roblox's own menu corner),
--- the meteor-event countdown with a day/night marker, the base lock
+-- the treasure-chest countdown with a day/night marker, the base lock
 -- and rebirth buttons, and one-line toasts. Every number that matters
 -- is the server's: cash is read from leaderstats, the rest arrives on
 -- the HudUpdate remote, and the buttons only send intents the server
@@ -63,7 +63,7 @@ local castLabel = makeLabel(wallet, "Cast", UDim2.new(1, 0, 0, 20), UDim2.new(0,
 
 -- Top-right event panel.
 local eventPanel = makePanel(gui, "EventPanel", UDim2.fromOffset(250, 62), UDim2.new(1, -10, 0, 10), Vector2.new(1, 0))
-local eventTitle = makeLabel(eventPanel, "EventTitle", UDim2.new(1, 0, 0, 24), UDim2.new(0, 0, 0, 4), "HUJAN METEOR SAMBAL", 16, Color3.fromRGB(255, 150, 90))
+local eventTitle = makeLabel(eventPanel, "EventTitle", UDim2.new(1, 0, 0, 24), UDim2.new(0, 0, 0, 4), "PETI HARTA KARUN", 16, Color3.fromRGB(255, 200, 80))
 local eventLabel = makeLabel(eventPanel, "EventTimer", UDim2.new(1, 0, 0, 28), UDim2.new(0, 0, 0, 28), "dalam 60 dtk", 20, Color3.fromRGB(255, 255, 255))
 
 -- Bottom-centre action buttons.
@@ -164,16 +164,16 @@ hudUpdate.OnClientEvent:Connect(function(state)
 
 	local sky = state.IsNight and "MALAM" or "SIANG"
 	if state.EventPhase == "active" then
-		eventTitle.Text = "HUJAN METEOR SAMBAL!"
-		eventTitle.TextColor3 = Color3.fromRGB(255, 90, 60)
-		eventLabel.Text = "AMBIL METEORNYA! " .. state.EventSeconds .. " dtk"
+		eventTitle.Text = "PETI HARTA MUNCUL!"
+		eventTitle.TextColor3 = Color3.fromRGB(255, 200, 60)
+		eventLabel.Text = "BUKA PETINYA! " .. state.EventSeconds .. " dtk"
 	elseif state.EventPhase == "warn" then
-		eventTitle.Text = "METEOR SEBENTAR LAGI!"
+		eventTitle.Text = "PETI SEBENTAR LAGI!"
 		eventTitle.TextColor3 = Color3.fromRGB(255, 190, 80)
 		eventLabel.Text = "siap-siap... " .. state.EventSeconds .. " dtk"
 	else
-		eventTitle.Text = "HUJAN METEOR SAMBAL • " .. sky
-		eventTitle.TextColor3 = Color3.fromRGB(255, 150, 90)
+		eventTitle.Text = "PETI HARTA KARUN • " .. sky
+		eventTitle.TextColor3 = Color3.fromRGB(255, 200, 80)
 		eventLabel.Text = "dalam " .. state.EventSeconds .. " dtk"
 	end
 end)

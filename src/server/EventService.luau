@@ -1,10 +1,9 @@
 -- EventService: the island's sky. Three rhythms run here:
---  * "Hujan Meteor Sambal" — every 90 seconds (60 calm, 10 warning,
---    20 active) sambal meteors rain on the plaza. A marker disc shows
---    each landing point from the moment the meteor spawns; the landed
---    meteor is a big neon ball with a light pillar, lives 20 seconds,
---    and pays $50 x the collector's rebirth multiplier to whoever
---    touches it or stands within 6 studs.
+--  * "Peti Harta Karun" — every 90 seconds (60 calm, 10 warning,
+--    20 active) five treasure chests appear on the plaza, each under
+--    a tall gold light pillar. Opening one (proximity prompt) pays
+--    $50 x the opener's rebirth multiplier in a burst of gold;
+--    unopened chests vanish when the active phase ends.
 --  * Day and night — Lighting starts at 08:00 and completes a full
 --    cycle every 360 seconds; night (19:00-05:00) doubles the rare
 --    conveyor weights (BrainrotData.Roll reads IsNight).
@@ -28,8 +27,6 @@ EventService.PeriodSeconds = 90
 EventService.WarnSeconds = 10
 EventService.ActiveSeconds = 20
 EventService.BonusCash = 50
-EventService.MeteorLifetime = 20
-EventService.CollectRadius = 6
 EventService.DayLengthSeconds = 360
 
 -- Set by init.server.luau: claims the golden entry for a player
@@ -47,7 +44,7 @@ local placedFolder: Folder? = nil
 local goldenEntry: PlayerState.Entry? = nil
 local goldenPillar: Part? = nil
 local isNight = false
-local announcedLanding = false -- first meteor touchdown of this active phase already announced
+local activeChests: { Model } = {} -- unclaimed chests of the current active phase
 
 function EventService.GetStatus(): { Phase: string, SecondsLeft: number }
 	return {
@@ -60,133 +57,141 @@ function EventService.IsNight(): boolean
 	return isNight
 end
 
-local function collectMeteor(player: Player, meteor: Part, pillar: Part)
-	local record = PlayerState.Records[player]
-	if not record then
-		return
-	end
-	local bonus = math.floor(EventService.BonusCash * PlayerState.Multiplier(record))
-	PlayerState.AddCash(record, bonus)
-	notify(player, "Meteor Sambal! +$" .. bonus)
-	meteor:Destroy()
-	pillar:Destroy()
-end
-
-local function spawnMeteor()
+-- A quick golden burst where a chest was opened: a neon gold sphere
+-- that swells from 1 to 6 studs over 0.4 s while fading out.
+local function spawnBurst(pos: Vector3)
 	local folder = meteorsFolder
 	if not folder then
 		return
 	end
-	local x = rng:NextNumber(-45, 45)
-	local z = rng:NextNumber(-28, 28)
-	local target = Vector3.new(x, WorldBuilder.FloorTop + 1.6, z)
-
-	local marker = Instance.new("Part")
-	marker.Name = "MeteorMarker"
-	marker.Size = Vector3.new(4.8, 0.25, 4.8)
-	marker.Shape = Enum.PartType.Cylinder
-	marker.CFrame = CFrame.new(target.X, WorldBuilder.FloorTop + 0.15, target.Z)
-		* CFrame.Angles(0, 0, math.rad(90))
-	marker.Color = Color3.fromRGB(255, 120, 50)
-	marker.Material = Enum.Material.Neon
-	marker.Transparency = 0.35
-	marker.Anchored = true
-	marker.CanCollide = false
-	marker.Parent = folder
-
-	local meteor = Instance.new("Part")
-	meteor.Name = "MeteorSambal"
-	meteor.Size = Vector3.new(3.2, 3.2, 3.2)
-	meteor.Shape = Enum.PartType.Ball
-	meteor.CFrame = CFrame.new(x, 62, z)
-	meteor.Color = Color3.fromRGB(255, 90, 40)
-	meteor.Material = Enum.Material.Neon
-	meteor.Anchored = true
-	meteor.CanCollide = false
-	meteor.Parent = folder
-	local glow = Instance.new("PointLight")
-	glow.Color = Color3.fromRGB(255, 120, 50)
-	glow.Range = 16
-	glow.Brightness = 2
-	glow.Parent = meteor
-
 	task.spawn(function()
-		local startPos = meteor.Position
-		local duration = 0.9
+		local burst = Instance.new("Part")
+		burst.Name = "PetiBurst"
+		burst.Shape = Enum.PartType.Ball
+		burst.Size = Vector3.new(1, 1, 1)
+		burst.CFrame = CFrame.new(pos)
+		burst.Color = Color3.fromRGB(255, 215, 80)
+		burst.Material = Enum.Material.Neon
+		burst.Anchored = true
+		burst.CanCollide = false
+		burst.Parent = folder
 		local elapsed = 0
-		while elapsed < duration and meteor.Parent do
+		while elapsed < 0.4 and burst.Parent do
 			local dt = task.wait()
 			elapsed += dt
-			local t = math.min(1, elapsed / duration)
-			meteor.CFrame = CFrame.new(startPos:Lerp(target, t * t))
+			local t = math.min(1, elapsed / 0.4)
+			local s = 1 + 5 * t
+			burst.Size = Vector3.new(s, s, s)
+			burst.Transparency = t
 		end
-		if not meteor.Parent then
-			marker:Destroy()
+		burst:Destroy()
+	end)
+end
+
+-- One treasure chest at a random point on the plaza: a brown box with
+-- gold trim, its gold lid tipped open, a gold light and a tall gold
+-- pillar so it can be spotted from anywhere. The proximity prompt on
+-- the body is the whole interaction — hold to open, get the bonus.
+local function spawnChest()
+	local folder = meteorsFolder
+	if not folder then
+		return
+	end
+	local x = rng:NextNumber(-50, 50)
+	local z = rng:NextNumber(-26, 26)
+	local floorY = WorldBuilder.FloorTop
+
+	local model = Instance.new("Model")
+	model.Name = "PetiHartaKarun"
+	model.Parent = folder
+
+	local body = Instance.new("Part")
+	body.Name = "ChestBody"
+	body.Size = Vector3.new(2.6, 1.8, 2.2)
+	body.CFrame = CFrame.new(x, floorY + 0.9, z)
+	body.Color = Color3.fromRGB(122, 74, 34)
+	body.Material = Enum.Material.Wood
+	body.Anchored = true
+	body.Parent = model
+
+	for _, bandY in { floorY + 0.45, floorY + 1.35 } do
+		local band = Instance.new("Part")
+		band.Name = "ChestTrim"
+		band.Size = Vector3.new(2.7, 0.24, 2.3)
+		band.CFrame = CFrame.new(x, bandY, z)
+		band.Color = Color3.fromRGB(255, 196, 40)
+		band.Material = Enum.Material.Metal
+		band.Anchored = true
+		band.CanCollide = false
+		band.Parent = model
+	end
+
+	local lid = Instance.new("Part")
+	lid.Name = "ChestLid"
+	lid.Size = Vector3.new(2.9, 0.5, 2.5)
+	lid.CFrame = CFrame.new(x, floorY + 2.1, z - 0.35) * CFrame.Angles(math.rad(-18), 0, 0)
+	lid.Color = Color3.fromRGB(255, 196, 40)
+	lid.Material = Enum.Material.Metal
+	lid.Anchored = true
+	lid.CanCollide = false
+	lid.Parent = model
+
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(255, 200, 60)
+	light.Range = 12
+	light.Brightness = 2
+	light.Parent = body
+
+	local pillar = Instance.new("Part")
+	pillar.Name = "PetiPillar"
+	pillar.Size = Vector3.new(1.4, 30, 1.4)
+	pillar.Shape = Enum.PartType.Cylinder
+	pillar.CFrame = CFrame.new(x, floorY + 15, z) * CFrame.Angles(0, 0, math.rad(90))
+	pillar.Color = Color3.fromRGB(255, 210, 60)
+	pillar.Material = Enum.Material.Neon
+	pillar.Transparency = 0.35
+	pillar.Anchored = true
+	pillar.CanCollide = false
+	pillar.Parent = model
+
+	table.insert(activeChests, model)
+
+	local claimed = false
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Buka Peti"
+	prompt.ObjectText = "Peti Harta Karun"
+	prompt.HoldDuration = 0.5
+	prompt.Parent = body
+	prompt.Triggered:Connect(function(player: Player)
+		if claimed then
 			return
 		end
-		meteor.CFrame = CFrame.new(target)
-		marker:Destroy()
-
-		local pillar = Instance.new("Part")
-		pillar.Name = "MeteorPillar"
-		pillar.Size = Vector3.new(1.4, 30, 1.4)
-		pillar.Shape = Enum.PartType.Cylinder
-		pillar.CFrame = CFrame.new(target.X, target.Y + 15, target.Z)
-			* CFrame.Angles(0, 0, math.rad(90))
-		pillar.Color = Color3.fromRGB(255, 120, 50)
-		pillar.Material = Enum.Material.Neon
-		pillar.Transparency = 0.35
-		pillar.Anchored = true
-		pillar.CanCollide = false
-		pillar.Parent = folder
-
-		if not announcedLanding then
-			announcedLanding = true
-			notifyAll("Meteor Sambal jatuh di dekat plaza — dekati pilar cahayanya untuk bonus cash!")
+		claimed = true
+		local record = PlayerState.Records[player]
+		if record then
+			local bonus = math.floor(EventService.BonusCash * PlayerState.Multiplier(record))
+			PlayerState.AddCash(record, bonus)
+			notify(player, "Peti Harta! +$" .. bonus)
 		end
-
-		local collected = false
-		local conn: RBXScriptConnection? = nil
-		conn = meteor.Touched:Connect(function(hit)
-			if collected then
-				return
-			end
-			local character = hit.Parent
-			local player = character and Players:GetPlayerFromCharacter(character)
-			if player then
-				collected = true
-				if conn then
-					conn:Disconnect()
-				end
-				collectMeteor(player, meteor, pillar)
-			end
-		end)
-		local deadline = os.clock() + EventService.MeteorLifetime
-		while not collected and os.clock() < deadline and meteor.Parent do
-			task.wait(0.15)
-			for _, player in Players:GetPlayers() do
-				local character = player.Character
-				local hrp = character and character:FindFirstChild("HumanoidRootPart")
-				if hrp and (hrp.Position - target).Magnitude <= EventService.CollectRadius then
-					collected = true
-					if conn then
-						conn:Disconnect()
-					end
-					collectMeteor(player, meteor, pillar)
-					break
-				end
+		for i, chest in activeChests do
+			if chest == model then
+				table.remove(activeChests, i)
+				break
 			end
 		end
-		if conn then
-			conn:Disconnect()
-		end
-		if meteor.Parent then
-			meteor:Destroy()
-		end
-		if pillar.Parent then
-			pillar:Destroy()
-		end
+		model:Destroy()
+		spawnBurst(Vector3.new(x, floorY + 1.2, z))
 	end)
+end
+
+-- Unclaimed chests vanish when the active phase ends.
+local function clearChests()
+	for _, chest in activeChests do
+		if chest.Parent then
+			chest:Destroy()
+		end
+	end
+	table.clear(activeChests)
 end
 
 local function spawnGolden()
@@ -279,7 +284,7 @@ function EventService.Start(world: any, notifyAllFn: (string) -> (), notifyFn: (
 	notifyAll = notifyAllFn
 	notify = notifyFn
 
-	-- The meteor cycle.
+	-- The treasure chest cycle.
 	task.spawn(function()
 		while true do
 			phase = "calm"
@@ -289,18 +294,17 @@ function EventService.Start(world: any, notifyAllFn: (string) -> (), notifyFn: (
 
 			phase = "warn"
 			phaseEndsAt = os.clock() + EventService.WarnSeconds
-			notifyAll("Langit memerah... HUJAN METEOR SAMBAL sebentar lagi!")
+			notifyAll("PETI HARTA KARUN akan muncul di plaza — bersiap!")
 			task.wait(EventService.WarnSeconds)
 
 			phase = "active"
-			announcedLanding = false
 			phaseEndsAt = os.clock() + EventService.ActiveSeconds
-			notifyAll("HUJAN METEOR SAMBAL! Dekati meteor untuk bonus cash!")
-			local activeUntil = os.clock() + EventService.ActiveSeconds
-			while os.clock() < activeUntil do
-				spawnMeteor()
-				task.wait(0.65)
+			notifyAll("5 PETI HARTA muncul di plaza! Dekati dan BUKA petinya untuk bonus cash!")
+			for _ = 1, 5 do
+				spawnChest()
 			end
+			task.wait(EventService.ActiveSeconds)
+			clearChests()
 		end
 	end)
 
