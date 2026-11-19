@@ -13,6 +13,8 @@ local remotesFolder = ReplicatedStorage:WaitForChild("BrainrotRemotes")
 local hudEvent = remotesFolder:WaitForChild("Hud") :: RemoteEvent
 local toastEvent = remotesFolder:WaitForChild("Toast") :: RemoteEvent
 local actionEvent = remotesFolder:WaitForChild("Action") :: RemoteEvent
+local debugEvent = remotesFolder:WaitForChild("Debug") :: RemoteEvent
+local teleportEvent = remotesFolder:WaitForChild("Teleport") :: RemoteEvent
 
 local function formatMoney(amount: number): string
 	local digits = tostring(math.floor(amount))
@@ -131,4 +133,55 @@ hudEvent.OnClientEvent:Connect(function(payload: { [string]: any })
 	else
 		lockButton.Text = "KUNCI BASE (60 dtk)"
 	end
+end)
+
+-- Debug panel (Build 16 diagnostic layer): a plain-text mirror of
+-- the server probe's report, top-left under the top bar. Whatever
+-- the server says the world looks like lands here verbatim, so a
+-- screenshot of this panel carries the live numbers.
+local debugFrame = Instance.new("Frame")
+debugFrame.Name = "DebugPanel"
+debugFrame.Size = UDim2.new(0.42, 0, 0.34, 0)
+debugFrame.Position = UDim2.new(0, 8, 0, 98)
+debugFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+debugFrame.BackgroundTransparency = 0.35
+debugFrame.BorderSizePixel = 0
+debugFrame.Parent = gui
+local debugLabel = Instance.new("TextLabel")
+debugLabel.Name = "DebugText"
+debugLabel.Size = UDim2.new(1, -8, 1, -8)
+debugLabel.Position = UDim2.new(0, 4, 0, 4)
+debugLabel.BackgroundTransparency = 1
+debugLabel.Text = "DEBUG: menunggu server..."
+debugLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+debugLabel.Font = Enum.Font.Code
+debugLabel.TextSize = 13
+debugLabel.TextScaled = false
+debugLabel.TextXAlignment = Enum.TextXAlignment.Left
+debugLabel.TextYAlignment = Enum.TextYAlignment.Top
+debugLabel.Parent = debugFrame
+
+debugEvent.OnClientEvent:Connect(function(text: string)
+	debugLabel.Text = text
+end)
+
+-- KE BELT: asks the server to drop the player by the belt (the
+-- server picks the landing spot; the client only asks).
+local beltButton = Instance.new("TextButton")
+beltButton.Name = "BeltButton"
+beltButton.Size = UDim2.new(0, 120, 0, 40)
+beltButton.Position = UDim2.new(1, -132, 0, 8)
+beltButton.BackgroundColor3 = Color3.fromRGB(40, 140, 200)
+beltButton.Text = "KE BELT"
+beltButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+beltButton.Font = Enum.Font.FredokaOne
+beltButton.TextSize = 16
+beltButton.AutoButtonColor = true
+beltButton.Parent = gui
+local beltCorner = Instance.new("UICorner")
+beltCorner.CornerRadius = UDim.new(0, 10)
+beltCorner.Parent = beltButton
+
+beltButton.Activated:Connect(function()
+	teleportEvent:FireServer()
 end)

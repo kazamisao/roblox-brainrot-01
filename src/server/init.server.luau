@@ -13,6 +13,7 @@ local BaseService = require(script.BaseService)
 local CastData = require(script.CastData)
 local CharacterFactory = require(script.CharacterFactory)
 local ConveyorService = require(script.ConveyorService)
+local DebugProbe = require(script.DebugProbe)
 local EconomyService = require(script.EconomyService)
 local EventService = require(script.EventService)
 local Mover = require(script.Mover)
@@ -81,5 +82,17 @@ end
 EconomyService.Start()
 ConveyorService.Start(world)
 EventService.Start(world)
+
+-- Build 16 diagnostic layer: the probe reports live world numbers
+-- to every client, and the client's KE BELT button lands the
+-- player on the plaza south of the belt, facing the welcome board.
+Remotes.OnTeleport(function(player: Player)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if root and root:IsA("BasePart") then
+		(root :: BasePart).CFrame = CFrame.lookAt(Vector3.new(0, 4, 10), Vector3.new(0, 2, 0))
+	end
+end)
+DebugProbe.Start()
 
 print("[BrainrotIslandBaru] Build 15 live")

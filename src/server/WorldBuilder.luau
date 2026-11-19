@@ -107,6 +107,11 @@ function WorldBuilder.Build()
 	-- The plaza: a wooden deck whose top is exactly FloorTop.
 	part(world, "Plaza", Vector3.new(120, 1, 62), CFrame.new(0, 0.5, 0),
 		Color3.fromRGB(120, 91, 62), Enum.Material.WoodPlanks)
+	-- Diagnostic marker (Build 16): a tall neon obelisk standing on
+	-- the plaza. If the world renders, this cannot be missed; the
+	-- probe reports its live position alongside the plaza's.
+	part(world, "MarkerObelisk", Vector3.new(3, 30, 3), CFrame.new(0, 16, -12),
+		Color3.fromRGB(255, 0, 128), Enum.Material.Neon)
 	local trimNS = Color3.fromRGB(255, 70, 160)
 	local trimEW = Color3.fromRGB(60, 220, 255)
 	part(world, "PlazaTrimN", Vector3.new(120, 0.25, 1), CFrame.new(0, WorldBuilder.FloorTop + 0.12, -30.4), trimNS, Enum.Material.Neon)
@@ -155,10 +160,10 @@ function WorldBuilder.Build()
 	local board = part(world, "WelcomeBoard", Vector3.new(19, 8.5, 1),
 		CFrame.new(0, WorldBuilder.FloorTop + 4.8, -24), Color3.fromRGB(92, 58, 35), Enum.Material.Wood)
 	boardText(board, Enum.NormalId.Front,
-		"BRAINROT ISLAND BARU\nBeli dari conveyor - pajang di base\nCuri punya orang - kunci basemu\nBuild 15",
+		"BRAINROT ISLAND BARU\nBeli dari conveyor - pajang di base\nCuri punya orang - kunci basemu\nBuild 16",
 		Color3.new(1, 1, 1))
 	boardText(board, Enum.NormalId.Back,
-		"BRAINROT ISLAND BARU\nBuild 15",
+		"BRAINROT ISLAND BARU\nBuild 16",
 		Color3.new(1, 1, 1))
 
 	-- A hero pedestal on the plaza's south-west inlay; init sets

@@ -30,6 +30,8 @@ function Remotes.Init()
 	makeEvent("Hud")
 	makeEvent("Toast")
 	makeEvent("Action")
+	makeEvent("Debug")
+	makeEvent("Teleport")
 end
 
 function Remotes.Hud(player: Player, payload: { [string]: any })
@@ -56,6 +58,27 @@ function Remotes.OnAction(handler: (Player, string) -> ())
 			if type(action) == "string" then
 				handler(player, action)
 			end
+		end)
+	end
+end
+
+-- The diagnostic report goes to everyone at once: the probe is
+-- describing the shared world, not one player's state.
+function Remotes.DebugAll(text: string)
+	local ev = events.Debug
+	if ev then
+		ev:FireAllClients(text)
+	end
+end
+
+-- Bind the handler for the client's "KE BELT" debug teleport. The
+-- handler receives only the player; where they land is decided on
+-- the server, never by the client.
+function Remotes.OnTeleport(handler: (Player) -> ())
+	local ev = events.Teleport
+	if ev then
+		ev.OnServerEvent:Connect(function(player: Player)
+			handler(player)
 		end)
 	end
 end
