@@ -1,53 +1,56 @@
--- BaseService: owns the six base plots — who holds which, which slots
--- are filled, the per-second income tick, and the 30-second base lock
--- (60-second cooldown after it ends). Characters arrive here from the
--- conveyor, from a completed steal, or from the golden night visitor,
--- and are placed onto a slot of their owner's base.
+-- BaseService: owns the six base plots -- who holds which base,
+-- which of its six slots are filled, and the base lock. A character
+-- becomes "placed" here (arriving from the conveyor or from a
+-- completed steal): this module does the bookkeeping, tracks every
+-- placed entry per base so the lock can silence their steal
+-- prompts at once, and runs the lock itself -- the neon wall turns
+-- visible and every steal prompt inside goes dark for the duration.
+-- Movement is never done here; callers glide characters with the
+-- Mover and report the arrival.
 
-local PlayerState = require(script.Parent.PlayerState)
-local WorldBuilder = require(script.Parent.WorldBuilder)
 local CharacterFactory = require(script.Parent.CharacterFactory)
+local PlayerState = require(script.Parent.PlayerState)
+local Remotes = require(script.Parent.Remotes)
 
 local BaseService = {}
 
-BaseService.LockSeconds = 30
-BaseService.LockCooldownSeconds = 60
+local bases: { any } = {}
+local ownerByBase: { [number]: any } = {}
+local entriesByBase: { [number]: { [any]: boolean } } = {}
 
-local bases: { WorldBuilder.BaseSpot } = {}
-local ownerByBase: { [number]: PlayerState.Record } = {}
+BaseService.MaxSlots = 6
+BaseService.LockSeconds = 60
 
--- Set by init.server.luau: called after a character is placed so the
--- steal service can arm its prompts. A hook, so this module never has
--- to require the steal service (which requires this one).
-BaseService.OnPlaced = nil :: ((PlayerState.Entry) -> ())?
-
-function BaseService.Init(worldBases: { WorldBuilder.BaseSpot })
-	bases = worldBases
-end
-
-function BaseService.GetBase(index: number): WorldBuilder.BaseSpot?
-	return bases[index]
-end
-
-function BaseService.BaseOf(record: PlayerState.Record): WorldBuilder.BaseSpot?
-	if record.BaseIndex then
-		return bases[record.BaseIndex]
+function BaseService.Init(world: any)
+	bases = world.Bases
+	for _, base in bases do
+		entriesByBase[base.Index] = {}
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "LockPrompt"
+		prompt.ActionText = "Kunci Base (60 dtk)"
+		prompt.ObjectText = "Base"
+		prompt.HoldDuration = 0
+		prompt.MaxActivationDistance = 10
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = base.LockPad
+		prompt.Triggered:Connect(function(player: Player)
+			local record = PlayerState.Get(player)
+			if record and record.BaseIndex == base.Index then
+				BaseService.LockBase(record, BaseService.LockSeconds)
+				Remotes.Toast(player, "Base dikunci 60 detik!")
+			end
+		end)
 	end
-	return nil
 end
 
--- Where a character of this def stands on the given slot: the slot's
--- floor position lifted by half the body's height.
-function BaseService.SlotPosition(record: PlayerState.Record, slot: number, def: any): Vector3?
-	local base = BaseService.BaseOf(record)
-	if not base then
+function BaseService.BaseOf(record): any?
+	if not record or not record.BaseIndex then
 		return nil
 	end
-	local floor = base.Slots[slot]
-	return Vector3.new(floor.X, floor.Y + def.BodySize.Y / 2, floor.Z)
+	return bases[record.BaseIndex]
 end
 
-function BaseService.AssignBase(record: PlayerState.Record): number?
+function BaseService.AssignBase(record): number?
 	for _, base in bases do
 		if ownerByBase[base.Index] == nil then
 			ownerByBase[base.Index] = record
@@ -59,24 +62,44 @@ function BaseService.AssignBase(record: PlayerState.Record): number?
 	return nil
 end
 
--- Attach an entry to a record's slot. The caller has already moved the
--- model; this does the bookkeeping and fires the OnPlaced hook.
-function BaseService.PlaceEntry(entry: PlayerState.Entry, record: PlayerState.Record, slot: number)
+function BaseService.FreeSlot(record): number?
+	for s = 1, BaseService.MaxSlots do
+		if not record.SlotTaken[s] then
+			return s
+		end
+	end
+	return nil
+end
+
+-- The standing point of a slot: the pad-top position the world
+-- builder recorded. A character's origin is its feet, so this is
+-- the whole answer -- no per-character adjustment exists.
+function BaseService.SlotPosition(record, slot: number): Vector3?
+	local base = BaseService.BaseOf(record)
+	if not base then
+		return nil
+	end
+	return base.Slots[slot]
+end
+
+-- Attach an entry to a record's slot. The caller has already moved
+-- the model onto the slot; this does the bookkeeping.
+function BaseService.PlaceEntry(entry, record, slot: number)
 	entry.Owner = record
 	entry.OwnerPlayer = record.Player
 	entry.Slot = slot
 	entry.State = "placed"
 	record.SlotTaken[slot] = entry
 	table.insert(record.Placed, entry)
-	if BaseService.OnPlaced then
-		BaseService.OnPlaced(entry)
+	local base = BaseService.BaseOf(record)
+	if base then
+		entriesByBase[base.Index][entry] = true
 	end
 end
 
--- Detach an entry from its owner's lists without destroying the model
--- (a steal in progress keeps the slot reservation, so it calls this
--- only when the catch changes hands for good).
-function BaseService.DetachEntry(entry: PlayerState.Entry, keepSlotReservation: boolean)
+-- Detach an entry from its owner's lists without destroying the
+-- model (a steal in progress calls this when the catch is taken).
+function BaseService.DetachEntry(entry)
 	local owner = entry.Owner
 	if not owner then
 		return
@@ -86,146 +109,85 @@ function BaseService.DetachEntry(entry: PlayerState.Entry, keepSlotReservation: 
 			table.remove(owner.Placed, i)
 		end
 	end
-	if not keepSlotReservation and entry.Slot and owner.SlotTaken[entry.Slot] == entry then
+	if entry.Slot and owner.SlotTaken[entry.Slot] == entry then
 		owner.SlotTaken[entry.Slot] = nil
 	end
+	local base = BaseService.BaseOf(owner)
+	if base then
+		entriesByBase[base.Index][entry] = nil
+	end
+	entry.Owner = nil
+	entry.OwnerPlayer = nil
+	entry.Slot = nil
 end
 
-function BaseService.DestroyEntry(entry: PlayerState.Entry)
-	if entry.Dead then
+function BaseService.DestroyEntry(entry)
+	BaseService.DetachEntry(entry)
+	CharacterFactory.Destroy(entry)
+end
+
+local function setStealPrompts(base, enabled: boolean)
+	for entry in entriesByBase[base.Index] do
+		if entry.StealPrompt then
+			entry.StealPrompt.Enabled = enabled
+		end
+	end
+end
+
+-- Lock a base for `seconds`: wall visible, steal prompts inside
+-- dark. A token guards the timer so re-locking never lets an older
+-- timer unlock the base early.
+function BaseService.LockBase(record, seconds: number)
+	local base = BaseService.BaseOf(record)
+	if not base then
 		return
 	end
-	entry.Dead = true
-	BaseService.DetachEntry(entry, false)
-	if entry.Model then
-		entry.Model:Destroy()
-	end
+	base.Locked = true
+	base.LockToken += 1
+	local token = base.LockToken
+	base.LockWall.Transparency = 0.35
+	setStealPrompts(base, false)
+	task.delay(seconds, function()
+		if base.LockToken == token and base.Locked then
+			BaseService.UnlockBase(base)
+		end
+	end)
 end
 
--- Release a base when its owner leaves: every brainrot on it goes with
--- them (one being carried away is cut loose from its thief first).
-function BaseService.ReleaseBase(record: PlayerState.Record)
+function BaseService.UnlockBase(base)
+	base.Locked = false
+	base.LockToken += 1
+	base.LockWall.Transparency = 1
+	setStealPrompts(base, true)
+end
+
+function BaseService.IsLocked(record): boolean
+	local base = BaseService.BaseOf(record)
+	return base ~= nil and base.Locked == true
+end
+
+-- Release a base when its owner leaves: every character on it is
+-- destroyed and the plot returns to the pool.
+function BaseService.ReleaseBase(record)
 	local index = record.BaseIndex
 	if not index then
 		return
 	end
-	-- Collect first: DestroyEntry mutates the lists being walked.
-	local mine: { PlayerState.Entry } = {}
-	for _, entry in record.Placed do
-		table.insert(mine, entry)
-	end
-	for _, entry in record.SlotTaken do
-		local seen = false
-		for _, e in mine do
-			if e == entry then
-				seen = true
-			end
-		end
-		if not seen then
-			table.insert(mine, entry)
-		end
-	end
-	for _, entry in mine do
-		local carrier = entry.Carrier
-		if carrier then
-			local carrierRecord = PlayerState.Records[carrier]
-			if carrierRecord and carrierRecord.Carrying == entry then
-				carrierRecord.Carrying = nil
-			end
-			entry.Carrier = nil
-		end
+	local placed = table.clone(record.Placed)
+	for _, entry in placed do
 		BaseService.DestroyEntry(entry)
 	end
 	record.Placed = {}
 	record.SlotTaken = {}
-	ownerByBase[index] = nil
-	record.BaseIndex = nil
 	local base = bases[index]
 	if base then
-		base.OwnerSign.Text = "BASE KOSONG"
-		base.LockWall.Transparency = 1
-		base.LockWall.CanCollide = false
-	end
-end
-
-function BaseService.IsLocked(record: PlayerState.Record): boolean
-	return os.clock() < record.LockUntil
-end
-
-function BaseService.LockSecondsLeft(record: PlayerState.Record): number
-	return math.max(0, math.ceil(record.LockUntil - os.clock()))
-end
-
-function BaseService.LockCooldownLeft(record: PlayerState.Record): number
-	if BaseService.IsLocked(record) then
-		return 0
-	end
-	return math.max(0, math.ceil(record.LockReadyAt - os.clock()))
-end
-
-function BaseService.TryLock(record: PlayerState.Record): (boolean, string)
-	local base = BaseService.BaseOf(record)
-	if not base then
-		return false, "Kamu belum punya base!"
-	end
-	local now = os.clock()
-	if now < record.LockUntil then
-		return false, "Base sudah terkunci (" .. BaseService.LockSecondsLeft(record) .. " dtk lagi)."
-	end
-	if now < record.LockReadyAt then
-		return false, "Kunci masih cooldown " .. BaseService.LockCooldownLeft(record) .. " dtk lagi."
-	end
-	record.LockUntil = now + BaseService.LockSeconds
-	record.LockReadyAt = record.LockUntil + BaseService.LockCooldownSeconds
-	base.LockWall.Transparency = 0.65
-	base.LockWall.CanCollide = true
-	task.delay(BaseService.LockSeconds, function()
-		base.LockWall.Transparency = 1
-		base.LockWall.CanCollide = false
-	end)
-	return true, "Base TERKUNCI selama " .. BaseService.LockSeconds .. " detik!"
-end
-
--- The income tick: once a second, every placed brainrot pays its owner
--- floor(PerSec x multiplier); carried brainrots earn nothing. Each
--- paying brainrot pops a floating "+$N" over itself so the income is
--- visible in the world, and the paid total is mirrored into the
--- IncomePerSec attribute for the HUD. The same loop keeps the base
--- sign honest about the lock: while the base is locked the sign
--- counts the remaining seconds down for every rival to read.
-function BaseService.StartLoops()
-	task.spawn(function()
-		while true do
-			task.wait(1)
-			for _, record in PlayerState.Records do
-				local mult = PlayerState.Multiplier(record)
-				local paid = 0
-				for _, entry in record.Placed do
-					if entry.State == "placed" then
-						local pay = math.floor(entry.Def.PerSec * mult)
-						paid += pay
-						if pay > 0 then
-							CharacterFactory.ShowIncomePopup(entry.Body, pay)
-						end
-					end
-				end
-				if paid > 0 then
-					PlayerState.AddCash(record, paid)
-				end
-				record.Player:SetAttribute("IncomePerSec", paid)
-
-				local base = BaseService.BaseOf(record)
-				if base then
-					if BaseService.IsLocked(record) then
-						base.OwnerSign.Text = "BASE MILIK:\n" .. record.Player.Name
-							.. "\nTERKUNCI " .. BaseService.LockSecondsLeft(record) .. " dtk"
-					elseif string.find(base.OwnerSign.Text, "TERKUNCI") then
-						base.OwnerSign.Text = "BASE MILIK:\n" .. record.Player.Name
-					end
-				end
-			end
+		if base.Locked then
+			BaseService.UnlockBase(base)
 		end
-	end)
+		base.OwnerSign.Text = "BASE KOSONG"
+	end
+	ownerByBase[index] = nil
+	record.BaseIndex = nil
 end
 
 return BaseService

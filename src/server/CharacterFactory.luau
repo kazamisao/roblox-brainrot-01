@@ -1,32 +1,43 @@
--- CharacterFactory: builds a single brainrot character out of plain
--- anchored Parts grouped in a Model. Layout, all relative to the
--- model origin: a shaped body in the tier colour, a near-black
--- pedestal disc under it ringed by a neon rarity glow disc, a round
--- head with two eyes and maybe a glowing topper, and a three-line
--- billboard (name / rate + rarity / price) that does the selling.
--- This module also owns the "+$N" popup shown when a placed
--- brainrot pays out. No physics anywhere: movement is GlideTo, a
--- PivotTo glide with a little hop in the middle.
+-- CharacterFactory: turns a CastData definition into a live
+-- character entry. The factory creates one anchored Part per box,
+-- groups them in a Model, and records every part's authored local
+-- CFrame in entry.Locals. From that moment on the factory never
+-- positions anything itself: the first placement and every later
+-- move go through Mover.Apply, which stamps each part at
+-- placement * local. The factory also owns the two billboards a
+-- character carries -- the sales nameplate (name / rate + rarity /
+-- price) and the floating "+$N" income popup -- plus the hue cycle
+-- that animates Rainbow parts.
 
-local BrainrotData = require(script.Parent.BrainrotData)
+local CastData = require(script.Parent.CastData)
+local Mover = require(script.Parent.Mover)
 
 local CharacterFactory = {}
 
--- One anchored Part that never collides and has smooth top/bottom
--- faces. Every visible piece of a character goes through here.
-local function newPart(parent: Instance, name: string, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material?): Part
-	local part = Instance.new("Part")
-	part.Name = name
-	part.Size = size
-	part.CFrame = offset
-	part.Color = color
-	part.Material = material or Enum.Material.SmoothPlastic
-	part.Anchored = true
-	part.CanCollide = false
-	part.TopSurface = Enum.SurfaceType.Smooth
-	part.BottomSurface = Enum.SurfaceType.Smooth
-	part.Parent = parent
-	return part
+-- Entries with Rainbow parts, so one heartbeat loop can tint them
+-- all. Weak keys: a destroyed entry falls out on its own.
+local rainbowEntries: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+local rainbowRunning = false
+
+local function startRainbowLoop()
+	if rainbowRunning then
+		return
+	end
+	rainbowRunning = true
+	task.spawn(function()
+		while true do
+			local hue = (os.clock() * 0.12) % 1
+			local color = Color3.fromHSV(hue, 0.55, 1)
+			for entry in rainbowEntries do
+				if entry.Alive then
+					for _, part in entry.RainbowParts do
+						part.Color = color
+					end
+				end
+			end
+			task.wait(0.15)
+		end
+	end)
 end
 
 -- Indonesian thousands grouping: 150000 comes out as "150.000".
@@ -39,79 +50,86 @@ function CharacterFactory.FormatMoney(amount: number): string
 	return grouped
 end
 
-function CharacterFactory.Build(def: BrainrotData.Def): (Model, Part)
+-- The local frame of one authored box: its center offset, with any
+-- baked-in roll/yaw from the data applied on top.
+local function localFrameOf(b: { [string]: any }): CFrame
+	local cf = CFrame.new(b.Offset)
+	if b.RotY then
+		cf *= CFrame.Angles(0, math.rad(b.RotY), 0)
+	end
+	if b.RotZ then
+		cf *= CFrame.Angles(0, 0, math.rad(b.RotZ))
+	end
+	return cf
+end
+
+-- How high a box reaches above the origin plane. A cylinder rolled
+-- upright on Z stands on its length (Size.X); everything else
+-- stands on its height (Size.Y).
+local function topOf(b: { [string]: any }): number
+	if b.RotZ then
+		return b.Offset.Y + b.Size.X / 2
+	end
+	return b.Offset.Y + b.Size.Y / 2
+end
+
+function CharacterFactory.Build(def): any
 	local model = Instance.new("Model")
 	model.Name = def.Name
 
-	-- BodySize speaks in character terms: (width, thickness, depth).
-	-- A Cylinder part, though, runs its long axis along X, so for a
-	-- cylinder def the physical part swaps the axes — thickness on X,
-	-- diameter on Y/Z — and the Z-90° twist below stands that axis
-	-- up. The visible result is a flat upright disc of height
-	-- BodySize.Y and diameter BodySize.X/Z.
-	local bodySize = def.BodySize
-	local physicalSize = bodySize
-	if def.Shape == Enum.PartType.Cylinder then
-		physicalSize = Vector3.new(bodySize.Y, bodySize.X, bodySize.Z)
+	local entry: any = {
+		Def = def,
+		Model = model,
+		Parts = {},
+		Locals = {},
+		RainbowParts = {},
+		Alive = true,
+		GlideToken = 0,
+		State = "new",
+		Placement = CFrame.new(),
+	}
+
+	local topY = 0
+	for i, b in def.Boxes do
+		local part = Instance.new("Part")
+		part.Name = "Box" .. i
+		part.Size = b.Size
+		part.Color = b.Color
+		part.Material = if b.Neon then Enum.Material.Neon else Enum.Material.SmoothPlastic
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CanTouch = false
+		part.TopSurface = Enum.SurfaceType.Smooth
+		part.BottomSurface = Enum.SurfaceType.Smooth
+		if b.Shape then
+			part.Shape = b.Shape
+		end
+		local localCf = localFrameOf(b)
+		part.CFrame = localCf
+		part.Parent = model
+		table.insert(entry.Parts, part)
+		entry.Locals[part] = localCf
+		if b.Rainbow then
+			table.insert(entry.RainbowParts, part)
+		end
+		topY = math.max(topY, topOf(b))
 	end
-	local body = newPart(model, "Body", physicalSize, CFrame.new(), def.Color)
-	body.Shape = def.Shape
-	if def.Shape == Enum.PartType.Cylinder then
-		body.CFrame = CFrame.Angles(0, 0, math.rad(90))
-	end
+	entry.BodyPart = entry.Parts[1]
+	entry.TopY = topY
 
-	-- Two flat cylinders under the body, both laid over with the same
-	-- Z-90° twist. The wide near-black pedestal draws a hard outline
-	-- against any floor so the silhouette cannot melt into the
-	-- plaza; the smaller neon disc on top of it carries the rarity
-	-- colour, readable from across the island.
-	local footDiameter = math.max(bodySize.X, bodySize.Z)
-	local rim = newPart(model, "Pedestal",
-		Vector3.new(math.min(footDiameter * 1.5, 6.2), 0.16, math.min(footDiameter * 1.5, 6.2)),
-		CFrame.new(0, -(bodySize.Y / 2) - 0.02, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		Color3.fromRGB(24, 21, 32), Enum.Material.SmoothPlastic)
-	rim.Shape = Enum.PartType.Cylinder
-	local glow = newPart(model, "GlowDisc",
-		Vector3.new(math.min(footDiameter * 1.3, 5.6), 0.22, math.min(footDiameter * 1.3, 5.6)),
-		CFrame.new(0, -(bodySize.Y / 2) + 0.13, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		BrainrotData.RarityColors[def.Rarity] or Color3.new(1, 1, 1), Enum.Material.Neon)
-	glow.Shape = Enum.PartType.Cylinder
-
-	local headSize = math.max(bodySize.X, bodySize.Z) * 0.55
-	local headY = bodySize.Y / 2 + headSize / 2 - 0.15
-	local head = newPart(model, "Head", Vector3.new(headSize, headSize, headSize),
-		CFrame.new(0, headY, 0), def.Accent or def.Color)
-	head.Shape = Enum.PartType.Ball
-
-	-- Eyes face +X, the direction the conveyor travels, so a riding
-	-- brainrot always looks where it is heading.
-	local headR = headSize / 2
-	for _, side in { -1, 1 } do
-		local eye = newPart(model, "Eye", Vector3.new(0.46, 0.46, 0.46),
-			CFrame.new(headR * 0.82, headY + headR * 0.12, side * headR * 0.4),
-			Color3.fromRGB(18, 16, 22))
-		eye.Shape = Enum.PartType.Ball
-	end
-
-	if def.Accent then
-		local topper = newPart(model, "Topper",
-			Vector3.new(headSize * 0.45, 0.35, headSize * 0.45),
-			CFrame.new(0, headY + headR + 0.05, 0), def.Accent, Enum.Material.Neon)
-		topper.Shape = Enum.PartType.Ball
-	end
-
-	-- The pitch at a glance, on a dark-backed billboard so it stays
-	-- legible against a bright sky: name in the rarity colour, rate
-	-- beside the rarity, then the price.
-	local rarityColor = BrainrotData.RarityColors[def.Rarity] or Color3.new(1, 1, 1)
+	-- The nameplate floats a little above the tallest box. It rides
+	-- on the first part with a world-space offset, so it stays above
+	-- the character no matter how that part is rotated.
+	local rarityColor = CastData.RarityColors[def.Rarity] or Color3.new(1, 1, 1)
 	local plate = Instance.new("BillboardGui")
 	plate.Name = "Nameplate"
-	plate.Size = UDim2.new(11.5, 0, 3.6, 0)
-	plate.StudsOffset = Vector3.new(0, bodySize.Y / 2 + 2.4, 0)
+	plate.Size = UDim2.new(11.5, 0, 3.4, 0)
+	plate.StudsOffsetWorldSpace = Vector3.new(0, topY + 1.1 - def.Boxes[1].Offset.Y, 0)
 	plate.AlwaysOnTop = true
-	plate.Parent = body
+	plate.Parent = entry.BodyPart
 
-	local function plateLine(name: string, y: number, h: number, text: string, color: Color3): TextLabel
+	local function plateLine(name: string, y: number, h: number, text: string, color: Color3)
 		local label = Instance.new("TextLabel")
 		label.Name = name
 		label.Size = UDim2.new(1, 0, h, 0)
@@ -124,43 +142,37 @@ function CharacterFactory.Build(def: BrainrotData.Def): (Model, Part)
 		label.TextScaled = true
 		label.TextStrokeTransparency = 0.35
 		label.Parent = plate
-		return label
 	end
 
 	plateLine("Name", 0, 0.42, def.Name, rarityColor)
 	plateLine("Sub", 0.42, 0.31, "$" .. def.PerSec .. "/dtk • " .. def.Rarity, Color3.fromRGB(255, 255, 255))
-	plateLine("Price", 0.73, 0.27, "Harga $" .. CharacterFactory.FormatMoney(def.Price), Color3.fromRGB(160, 255, 170))
+	local priceText = if def.Price > 0 then "Harga $" .. CharacterFactory.FormatMoney(def.Price) else "GRATIS"
+	plateLine("Price", 0.73, 0.27, priceText, Color3.fromRGB(160, 255, 170))
+	entry.Nameplate = plate
 
-	-- The pivot anchor. The model gets a dedicated invisible Root
-	-- part parked exactly on the authored origin — the point every
-	-- offset above is measured from — and the PrimaryPart is pointed
-	-- at it once all parts are in. Two failure modes this avoids:
-	-- riding the pivot on the body breaks cylinders (the body's
-	-- Z-90° twist would leak into the pivot and tip the whole
-	-- character), and leaving the PrimaryPart unset breaks
-	-- everything (the pivot then falls back to a heuristic origin
-	-- nobody authored, and PivotTo buries the model by that error).
-	-- Root never rotates, so GetPivot() returns the clean authored
-	-- origin for Ball, Block and Cylinder alike.
-	local root = newPart(model, "Root", Vector3.new(1, 1, 1), CFrame.new(), Color3.new(1, 1, 1))
-	root.Transparency = 1
-	root.CanQuery = false
-	root.CanTouch = false
-	model.PrimaryPart = root
-	return model, body
+	if #entry.RainbowParts > 0 then
+		rainbowEntries[entry] = true
+		startRainbowLoop()
+	end
+
+	return entry
 end
 
--- The "+$N" popup: income you can see in the world, not only in the
--- HUD. One reusable BillboardGui per body; a per-body token keeps a
--- fresh tick's animation from being faded out by the tail of the
--- previous tick's.
-local popupTokens: { [Part]: number } = setmetatable({}, { __mode = "k" }) :: any
+-- Stamp the entry at a world placement for the first time. Every
+-- later move also goes through Mover; this is just the tidy name
+-- callers use when a character enters the world.
+function CharacterFactory.Place(entry, placement: CFrame)
+	Mover.Apply(entry, placement)
+end
 
-function CharacterFactory.ShowIncomePopup(body: Part, amount: number)
-	if amount <= 0 or not body.Parent then
+-- The "+$N" popup over a placed character when it pays out. One
+-- reusable billboard per entry; a token keeps a fresh tick's float
+-- animation from being faded by the tail of the previous one.
+function CharacterFactory.ShowIncomePopup(entry, amount: number)
+	if amount <= 0 or not entry.Alive then
 		return
 	end
-	local gui = body:FindFirstChild("IncomePopup") :: BillboardGui?
+	local gui = entry.PopupGui :: BillboardGui?
 	local label: TextLabel
 	if gui then
 		label = gui:FindFirstChildOfClass("TextLabel") :: TextLabel
@@ -169,7 +181,8 @@ function CharacterFactory.ShowIncomePopup(body: Part, amount: number)
 		gui.Name = "IncomePopup"
 		gui.Size = UDim2.new(6, 0, 1.6, 0)
 		gui.AlwaysOnTop = true
-		gui.Parent = body
+		gui.Parent = entry.BodyPart
+		entry.PopupGui = gui
 		label = Instance.new("TextLabel")
 		label.Size = UDim2.new(1, 0, 1, 0)
 		label.BackgroundTransparency = 1
@@ -179,20 +192,20 @@ function CharacterFactory.ShowIncomePopup(body: Part, amount: number)
 		label.TextStrokeTransparency = 0.25
 		label.Parent = gui
 	end
-	local bodyHeight = body.Size.Y
-	popupTokens[body] = (popupTokens[body] or 0) + 1
-	local token = popupTokens[body]
+	entry.PopupToken = (entry.PopupToken or 0) + 1
+	local token = entry.PopupToken
+	local baseLift = entry.TopY + 2.6 - entry.Def.Boxes[1].Offset.Y
 	label.Text = "+$" .. CharacterFactory.FormatMoney(amount)
 	label.TextTransparency = 0
 	label.TextStrokeTransparency = 0.25
 	task.spawn(function()
 		local elapsed = 0
-		while elapsed < 0.9 and popupTokens[body] == token and body.Parent do
+		while elapsed < 0.9 and entry.Alive and entry.PopupToken == token do
 			local dt = task.wait()
 			elapsed += dt
 			local t = math.min(1, elapsed / 0.9)
 			if gui then
-				gui.StudsOffset = Vector3.new(0, bodyHeight / 2 + 5.2 + t * 1.4, 0)
+				gui.StudsOffsetWorldSpace = Vector3.new(0, baseLift + t * 1.4, 0)
 			end
 			label.TextTransparency = t
 			label.TextStrokeTransparency = 0.25 + 0.75 * t
@@ -200,34 +213,16 @@ function CharacterFactory.ShowIncomePopup(body: Part, amount: number)
 	end)
 end
 
--- Glide a model to a target position over `seconds`: it keeps the
--- facing it started with and arcs through a small hop on the way.
--- `done` fires at the end, unless the model died mid-ride.
-function CharacterFactory.GlideTo(model: Model, targetPos: Vector3, seconds: number, done: (() -> ())?)
-	task.spawn(function()
-		if not model.Parent then
-			return
-		end
-		local startPivot = model:GetPivot()
-		local rotation = startPivot - startPivot.Position
-		local startPos = startPivot.Position
-		local elapsed = 0
-		while elapsed < seconds and model.Parent do
-			local dt = task.wait()
-			elapsed += dt
-			local t = math.min(1, elapsed / seconds)
-			local pos = startPos:Lerp(targetPos, t)
-			pos = Vector3.new(pos.X, pos.Y + math.sin(t * math.pi) * 1.6, pos.Z)
-			model:PivotTo(CFrame.new(pos) * rotation)
-		end
-		if not model.Parent then
-			return
-		end
-		model:PivotTo(CFrame.new(targetPos) * rotation)
-		if done then
-			done()
-		end
-	end)
+function CharacterFactory.Destroy(entry)
+	if not entry.Alive then
+		return
+	end
+	entry.Alive = false
+	entry.GlideToken += 1
+	rainbowEntries[entry] = nil
+	if entry.Model then
+		entry.Model:Destroy()
+	end
 end
 
 return CharacterFactory

@@ -1,283 +1,161 @@
--- StealService: the tension of Brainrot Island. A placed brainrot can
--- be snatched off a rival's base (a 0.6 s hold on its prompt), rides
--- above the thief's head while the thief walks 15% slower, and becomes
--- the thief's when the thief reaches their own base with a free slot.
--- The victim's slot stays reserved the whole time — no income is paid
--- for a carried brainrot, and if the thief dies or leaves, the catch
--- glides home to that reserved slot. The owner can instead sell a
--- placed brainrot back for half its price.
+-- StealService: the tension of the game. A placed character can be
+-- snatched off a rival's base with a short hold on its steal
+-- prompt, rides above the thief's head while the thief walks it
+-- home, and becomes the thief's the moment the thief reaches their
+-- own base with a free slot -- whereupon the thief's base locks
+-- behind it. Every check happens here on the server: the victim's
+-- base must be unlocked, the thief must have a base and a free
+-- slot, and nobody can carry two catches at once. Carrying is the
+-- same movement story as everything else: each tick the entry's
+-- placement is set to a point above the carrier's head and
+-- re-applied through the Mover.
 
-local PlayerState = require(script.Parent.PlayerState)
 local BaseService = require(script.Parent.BaseService)
 local CharacterFactory = require(script.Parent.CharacterFactory)
+local EconomyService = require(script.Parent.EconomyService)
+local Mover = require(script.Parent.Mover)
+local PlayerState = require(script.Parent.PlayerState)
+local Remotes = require(script.Parent.Remotes)
 
 local StealService = {}
 
-StealService.CarrySpeedFactor = 0.85
-StealService.DepositRadius = 11 -- studs from the thief's base centre
-StealService.BaseWalkSpeed = 16
+StealService.CarryHeight = 3.6
+StealService.DepositRadius = 12
 
-local notify: (Player, string) -> () = function() end
+local function horizontalDistance(a: Vector3, b: Vector3): number
+	local dx = a.X - b.X
+	local dz = a.Z - b.Z
+	return math.sqrt(dx * dx + dz * dz)
+end
 
-local function setPrompts(entry: PlayerState.Entry)
-	local placed = entry.State == "placed"
+-- Give a placed entry its steal prompt. The prompt lives on the
+-- entry so the base lock can silence it (and BaseService does, via
+-- entry.StealPrompt) whenever the owner's base locks.
+function StealService.AttachStealPrompt(entry)
 	if entry.StealPrompt then
-		entry.StealPrompt.Enabled = placed
-	end
-	if entry.SellPrompt then
-		entry.SellPrompt.Enabled = placed
-	end
-end
-
-local function setCarrierSpeed(player: Player, carrying: boolean)
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then
 		return
 	end
-	humanoid.WalkSpeed = carrying
-		and StealService.BaseWalkSpeed * StealService.CarrySpeedFactor
-		or StealService.BaseWalkSpeed
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "StealPrompt"
+	prompt.ActionText = "Curi"
+	prompt.ObjectText = entry.Def.Name
+	prompt.HoldDuration = 0.5
+	prompt.MaxActivationDistance = 9
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = entry.BodyPart
+	entry.StealPrompt = prompt
+	prompt.Triggered:Connect(function(player: Player)
+		StealService.TrySteal(entry, player)
+	end)
 end
 
--- Send a carried (or dropped) entry back to its owner's reserved slot.
-function StealService.ReturnHome(entry: PlayerState.Entry)
-	local owner = entry.Owner
-	local ownerPlayer = entry.OwnerPlayer
-	if entry.Carrier then
-		local carrierRecord = PlayerState.Records[entry.Carrier]
-		if carrierRecord and carrierRecord.Carrying == entry then
-			carrierRecord.Carrying = nil
-		end
-		setCarrierSpeed(entry.Carrier, false)
-		entry.Carrier = nil
+local function deposit(entry, thiefRecord)
+	local slot = BaseService.FreeSlot(thiefRecord)
+	if not slot then
+		return false
 	end
-	if not owner or not ownerPlayer or PlayerState.Records[ownerPlayer] ~= owner or not owner.BaseIndex or not entry.Slot then
-		BaseService.DestroyEntry(entry)
-		return
-	end
-	entry.State = "returning"
-	setPrompts(entry)
-	local target = BaseService.SlotPosition(owner, entry.Slot, entry.Def)
+	entry.State = "walking"
+	thiefRecord.Carrying = nil
+	local target = BaseService.SlotPosition(thiefRecord, slot)
 	if not target then
-		BaseService.DestroyEntry(entry)
-		return
+		return false
 	end
-	notify(ownerPlayer, entry.Def.Name .. " kembali ke base kamu.")
-	CharacterFactory.GlideTo(entry.Model, target, 1, function()
-		if entry.Dead then
+	Mover.Glide(entry, target, 0.8, function()
+		if not entry.Alive then
 			return
 		end
-		if PlayerState.Records[ownerPlayer] ~= owner then
+		if PlayerState.Records[thiefRecord.Player] ~= thiefRecord or thiefRecord.BaseIndex == nil then
 			BaseService.DestroyEntry(entry)
 			return
 		end
-		entry.State = "placed"
-		-- The grab detached it from the owner's Placed list; earning
-		-- (and the HUD count) only see entries on that list.
-		local listed = false
-		for _, e in owner.Placed do
-			if e == entry then
-				listed = true
-			end
+		BaseService.PlaceEntry(entry, thiefRecord, slot)
+		if entry.StealPrompt then
+			entry.StealPrompt.Enabled = not BaseService.IsLocked(thiefRecord)
 		end
-		if not listed then
-			table.insert(owner.Placed, entry)
-		end
-		setPrompts(entry)
+		BaseService.LockBase(thiefRecord, BaseService.LockSeconds)
+		Remotes.Toast(thiefRecord.Player, "Hasil curian masuk base! " .. entry.Def.Name)
+		EconomyService.SendHud(thiefRecord)
 	end)
+	return true
 end
 
--- Drop whatever a player is carrying (death, leaving, rebirth).
-function StealService.DropCarry(player: Player, _reason: string?)
-	local record = PlayerState.Records[player]
-	local entry = record and record.Carrying or nil
-	if not entry then
-		-- Fallback: scan by carrier in case the record is already gone.
-		for _, other in PlayerState.Records do
-			for _, e in other.SlotTaken do
-				if e.Carrier == player then
-					entry = e
-				end
-			end
-		end
-	end
-	if entry and entry.State == "carried" then
-		StealService.ReturnHome(entry)
-	end
-end
-
-local function completeSteal(entry: PlayerState.Entry, thief: Player, thiefRecord: PlayerState.Record)
-	local slot = PlayerState.FreeSlot(thiefRecord)
-	if not slot then
-		return -- base filled up on the way home; keep carrying
-	end
-	local oldOwner = entry.Owner
-	local oldOwnerPlayer = entry.OwnerPlayer
-	-- The catch changes hands for good: free the victim's reservation.
-	BaseService.DetachEntry(entry, false)
-	entry.State = "walking"
-	entry.Carrier = nil
-	thiefRecord.Carrying = nil
-	setCarrierSpeed(thief, false)
-	setPrompts(entry)
-	if oldOwnerPlayer then
-		notify(oldOwnerPlayer, entry.Def.Name .. " resmi dicuri " .. thief.Name .. "!")
-	end
-	notify(thief, entry.Def.Name .. " sekarang milikmu!")
-	local target = BaseService.SlotPosition(thiefRecord, slot, entry.Def)
-	if not target then
-		-- Nowhere to put it: send it back to the victim if they remain.
-		entry.Owner = oldOwner
-		entry.OwnerPlayer = oldOwnerPlayer
-		StealService.ReturnHome(entry)
-		return
-	end
-	CharacterFactory.GlideTo(entry.Model, target, 0.7, function()
-		if entry.Dead then
-			return
-		end
-		if PlayerState.Records[thief] ~= thiefRecord or not thiefRecord.BaseIndex then
-			entry.Owner = oldOwner
-			entry.OwnerPlayer = oldOwnerPlayer
-			StealService.ReturnHome(entry)
-			return
-		end
-		local finalSlot = PlayerState.FreeSlot(thiefRecord)
-		if not finalSlot then
-			entry.Owner = oldOwner
-			entry.OwnerPlayer = oldOwnerPlayer
-			StealService.ReturnHome(entry)
-			return
-		end
-		BaseService.PlaceEntry(entry, thiefRecord, finalSlot)
-		setPrompts(entry)
-	end)
-end
-
-local function startCarry(entry: PlayerState.Entry, thief: Player, thiefRecord: PlayerState.Record)
-	entry.State = "carried"
-	entry.Carrier = thief
-	thiefRecord.Carrying = entry
-	setPrompts(entry)
-	setCarrierSpeed(thief, true)
-	notify(thief, "Kamu mencuri " .. entry.Def.Name .. "! Bawa pulang ke base kamu!")
-	if entry.OwnerPlayer then
-		notify(entry.OwnerPlayer, "ALARM! " .. entry.Def.Name .. " dicuri " .. thief.Name .. "!")
-	end
-
+local function carryLoop(entry, thiefRecord)
 	task.spawn(function()
-		while entry.State == "carried" and not entry.Dead do
-			task.wait()
-			local character = thief.Character
-			local hrp = character and character:FindFirstChild("HumanoidRootPart")
-			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-			if not thief.Parent or not hrp or not humanoid or humanoid.Health <= 0 then
-				StealService.ReturnHome(entry)
+		while entry.Alive and entry.State == "carried" do
+			local thief = thiefRecord.Player
+			if thief.Parent == nil or PlayerState.Records[thief] ~= thiefRecord then
+				-- The thief vanished mid-carry; the catch is lost.
+				thiefRecord.Carrying = nil
+				BaseService.DestroyEntry(entry)
 				return
 			end
+			local character = thief.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
 			local base = BaseService.BaseOf(thiefRecord)
-			if base then
-				local flat = Vector3.new(hrp.Position.X - base.Center.X, 0, hrp.Position.Z - base.Center.Z)
-				if flat.Magnitude < StealService.DepositRadius then
-					completeSteal(entry, thief, thiefRecord)
-					if entry.State ~= "carried" then
+			if root and base then
+				Mover.Apply(entry, CFrame.new(root.Position + Vector3.new(0, StealService.CarryHeight, 0)))
+				if horizontalDistance(root.Position, base.Center) < StealService.DepositRadius then
+					if deposit(entry, thiefRecord) then
 						return
 					end
 				end
 			end
-			if entry.State == "carried" and entry.Model.Parent then
-				local above = hrp.Position + Vector3.new(0, 3.4 + entry.Def.BodySize.Y / 2, 0)
-				entry.Model:PivotTo(CFrame.new(above))
-			end
+			task.wait(0.1)
 		end
 	end)
 end
 
--- Called by BaseService's OnPlaced hook for every freshly placed entry:
--- builds the steal prompt (for rivals) and the sell prompt (owner).
-function StealService.ArmPrompt(entry: PlayerState.Entry)
-	if entry.StealPrompt or entry.SellPrompt then
-		setPrompts(entry)
+function StealService.TrySteal(entry, thiefPlayer: Player)
+	if entry.State ~= "placed" then
 		return
 	end
-	local def = entry.Def
+	local thiefRecord = PlayerState.Get(thiefPlayer)
+	if not thiefRecord or not thiefRecord.BaseIndex then
+		return
+	end
+	local victimRecord = entry.Owner
+	if not victimRecord then
+		return
+	end
+	if victimRecord == thiefRecord then
+		Remotes.Toast(thiefPlayer, "Ini punya kamu sendiri!")
+		return
+	end
+	if BaseService.IsLocked(victimRecord) then
+		Remotes.Toast(thiefPlayer, "Base lawan sedang TERKUNCI!")
+		return
+	end
+	if thiefRecord.Carrying then
+		Remotes.Toast(thiefPlayer, "Tanganmu sudah penuh!")
+		return
+	end
+	if not BaseService.FreeSlot(thiefRecord) then
+		Remotes.Toast(thiefPlayer, "Base kamu PENUH!")
+		return
+	end
 
-	local stealPrompt = Instance.new("ProximityPrompt")
-	stealPrompt.Name = "StealPrompt"
-	stealPrompt.ActionText = "Curi"
-	stealPrompt.ObjectText = def.Name
-	stealPrompt.HoldDuration = 0.6
-	stealPrompt.MaxActivationDistance = 10
-	stealPrompt.RequiresLineOfSight = false
-	stealPrompt.Parent = entry.Body
-	entry.StealPrompt = stealPrompt
-
-	local sellPrompt = Instance.new("ProximityPrompt")
-	sellPrompt.Name = "SellPrompt"
-	sellPrompt.ActionText = "Jual $" .. CharacterFactory.FormatMoney(math.floor(def.Price / 2))
-	sellPrompt.ObjectText = def.Name
-	sellPrompt.HoldDuration = 0.5
-	sellPrompt.MaxActivationDistance = 10
-	sellPrompt.RequiresLineOfSight = false
-	sellPrompt.Parent = entry.Body
-	entry.SellPrompt = sellPrompt
-
-	stealPrompt.Triggered:Connect(function(player)
-		if entry.State ~= "placed" or entry.Dead then
-			return
-		end
-		local thiefRecord = PlayerState.Records[player]
-		if not thiefRecord then
-			return
-		end
-		if entry.Owner == thiefRecord then
-			notify(player, "Ini brainrot milikmu sendiri.")
-			return
-		end
-		if thiefRecord.Carrying then
-			notify(player, "Tanganmu penuh! Bawa pulang dulu curianmu.")
-			return
-		end
-		local owner = entry.Owner
-		if owner and BaseService.IsLocked(owner) then
-			notify(player, "Base ini sedang TERKUNCI. Coba lagi nanti.")
-			return
-		end
-		if not thiefRecord.BaseIndex then
-			notify(player, "Kamu belum punya base!")
-			return
-		end
-		if not PlayerState.FreeSlot(thiefRecord) then
-			notify(player, "Base kamu PENUH! Jual dulu salah satu brainrot.")
-			return
-		end
-		-- Leave the owner's Placed list (no income, no double-count)
-		-- but keep the slot reservation for the way home.
-		BaseService.DetachEntry(entry, true)
-		startCarry(entry, player, thiefRecord)
-	end)
-
-	sellPrompt.Triggered:Connect(function(player)
-		if entry.State ~= "placed" or entry.Dead then
-			return
-		end
-		local record = PlayerState.Records[player]
-		if not record or entry.Owner ~= record then
-			notify(player, "Ini bukan brainrot milikmu.")
-			return
-		end
-		local refund = math.floor(def.Price / 2)
-		PlayerState.AddCash(record, refund)
-		notify(player, def.Name .. " terjual. +$" .. CharacterFactory.FormatMoney(refund))
-		BaseService.DestroyEntry(entry)
-	end)
-
-	setPrompts(entry)
+	BaseService.DetachEntry(entry)
+	entry.State = "carried"
+	entry.Carrier = thiefRecord
+	thiefRecord.Carrying = entry
+	if entry.StealPrompt then
+		entry.StealPrompt.Enabled = false
+	end
+	Remotes.Toast(thiefPlayer, "Kamu mencuri " .. entry.Def.Name .. "! Bawa pulang ke basemu!")
+	Remotes.Toast(victimRecord.Player, entry.Def.Name .. " kamu DICURI oleh " .. thiefPlayer.Name .. "!")
+	EconomyService.SendHud(victimRecord)
+	carryLoop(entry, thiefRecord)
 end
 
-function StealService.Start(notifyFn: (Player, string) -> ())
-	notify = notifyFn
+-- When a player leaves, any catch they were carrying is lost with
+-- them (their own placed characters are released by BaseService).
+function StealService.OnPlayerLeft(player: Player)
+	local record = PlayerState.Get(player)
+	if record and record.Carrying then
+		local entry = record.Carrying
+		record.Carrying = nil
+		BaseService.DestroyEntry(entry)
+	end
 end
 
 return StealService

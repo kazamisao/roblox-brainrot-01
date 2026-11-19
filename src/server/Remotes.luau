@@ -1,37 +1,63 @@
--- Remotes: creates (server) or finds (client) the one folder of
--- RemoteEvents the game talks through. Client -> server requests are
--- intents only ("LockRequest", "RebirthRequest"); every rule is checked
+-- Remotes: the one folder of RemoteEvents the game talks through,
+-- created here on the server and found by the client. Client ->
+-- server traffic is intents only (the "Action" event carries words
+-- like "rebirth" or "lock"); every rule behind an intent is checked
 -- again on the server. Server -> client traffic is display state
--- ("HudUpdate") and one-line feedback ("Toast").
+-- (the "Hud" event) and one-line feedback (the "Toast" event).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Remotes = {}
 
-local NAMES = {
-	"LockRequest", -- client asks to lock its own base
-	"RebirthRequest", -- client asks to rebirth
-	"HudUpdate", -- server pushes income / rebirth / lock / event state
-	"Toast", -- server pushes a one-line message for one player (or all)
-}
+local events: { [string]: RemoteEvent } = {}
 
-function Remotes.Get(): { [string]: RemoteEvent }
-	local folder = ReplicatedStorage:FindFirstChild("IslandRemotes")
+local function makeEvent(name: string): RemoteEvent
+	local ev = Instance.new("RemoteEvent")
+	ev.Name = name
+	ev.Parent = Remotes.Folder
+	events[name] = ev
+	return ev
+end
+
+function Remotes.Init()
+	local folder = ReplicatedStorage:FindFirstChild("BrainrotRemotes")
 	if not folder then
 		folder = Instance.new("Folder")
-		folder.Name = "IslandRemotes"
-		for _, name in NAMES do
-			local event = Instance.new("RemoteEvent")
-			event.Name = name
-			event.Parent = folder
-		end
+		folder.Name = "BrainrotRemotes"
 		folder.Parent = ReplicatedStorage
 	end
-	local out: { [string]: RemoteEvent } = {}
-	for _, name in NAMES do
-		out[name] = folder:WaitForChild(name) :: RemoteEvent
+	Remotes.Folder = folder
+	makeEvent("Hud")
+	makeEvent("Toast")
+	makeEvent("Action")
+end
+
+function Remotes.Hud(player: Player, payload: { [string]: any })
+	local ev = events.Hud
+	if ev then
+		ev:FireClient(player, payload)
 	end
-	return out
+end
+
+function Remotes.Toast(player: Player, text: string)
+	local ev = events.Toast
+	if ev then
+		ev:FireClient(player, text)
+	end
+end
+
+-- Bind the handler for client intents. The handler receives the
+-- player and the action word; anything unrecognized is ignored by
+-- the handler, never trusted.
+function Remotes.OnAction(handler: (Player, string) -> ())
+	local ev = events.Action
+	if ev then
+		ev.OnServerEvent:Connect(function(player: Player, action: any)
+			if type(action) == "string" then
+				handler(player, action)
+			end
+		end)
+	end
 end
 
 return Remotes
