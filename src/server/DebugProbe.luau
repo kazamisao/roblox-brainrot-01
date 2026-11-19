@@ -1,4 +1,4 @@
--- DebugProbe: the Build 16 diagnostic layer. The game logic reads
+-- DebugProbe: the Build 17 diagnostic layer. The game logic reads
 -- correct on disk yet players report an empty world, so this module
 -- reads the LIVE state inside a running server -- world part count,
 -- plaza and marker positions, avatar positions, and the vertical
@@ -9,7 +9,7 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
-local Remotes = require(script.Remotes)
+local Remotes = require(script.Parent.Remotes)
 
 local DebugProbe = {}
 

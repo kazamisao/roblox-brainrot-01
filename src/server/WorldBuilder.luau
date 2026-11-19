@@ -160,10 +160,10 @@ function WorldBuilder.Build()
 	local board = part(world, "WelcomeBoard", Vector3.new(19, 8.5, 1),
 		CFrame.new(0, WorldBuilder.FloorTop + 4.8, -24), Color3.fromRGB(92, 58, 35), Enum.Material.Wood)
 	boardText(board, Enum.NormalId.Front,
-		"BRAINROT ISLAND BARU\nBeli dari conveyor - pajang di base\nCuri punya orang - kunci basemu\nBuild 16",
+		"BRAINROT ISLAND BARU\nBeli dari conveyor - pajang di base\nCuri punya orang - kunci basemu\nBuild 17",
 		Color3.new(1, 1, 1))
 	boardText(board, Enum.NormalId.Back,
-		"BRAINROT ISLAND BARU\nBuild 16",
+		"BRAINROT ISLAND BARU\nBuild 17",
 		Color3.new(1, 1, 1))
 
 	-- A hero pedestal on the plaza's south-west inlay; init sets
