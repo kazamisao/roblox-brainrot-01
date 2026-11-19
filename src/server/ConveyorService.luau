@@ -1,10 +1,11 @@
--- ConveyorService: the heart of the loop. Every 3.5 seconds a new
--- brainrot appears at the west end of the belt (at most 7 riding at
--- once), travels east at 6 studs per second, and despawns at the far
--- end if nobody buys it. Buying is a ProximityPrompt on the character;
--- the purchase is validated here on the server — still on the belt,
--- enough cash, a free slot at the buyer's base — before any cash
--- moves, and the character then glides to the buyer's slot.
+-- ConveyorService: the loop at the centre of the game. A fresh
+-- brainrot spawns at the west end of the belt every 3.5 seconds (at
+-- most 7 riding at once), rides east at 6 studs per second, and
+-- despawns at the far end if nobody takes it. Buying runs through a
+-- ProximityPrompt on the character and is fully validated here on
+-- the server — still on the belt, cash covers the price, a slot is
+-- free at the buyer's base — before any cash moves; the character
+-- then glides over to the buyer's slot.
 
 local BrainrotData = require(script.Parent.BrainrotData)
 local CharacterFactory = require(script.Parent.CharacterFactory)
@@ -24,10 +25,10 @@ local placedFolder: Folder? = nil
 local notify: (Player, string) -> () = function() end
 local onBelt: { PlayerState.Entry } = {}
 
--- The first spawns of a fresh server are scripted, not rolled: two
--- copies of the $25 opener and the $75 second tier ride out first,
--- so a brand-new player (starting cash $100) can complete their
--- first buy within seconds instead of waiting on the weighted roll.
+-- A fresh server does not roll its first spawns: two copies of the
+-- $25 opener and the $75 second tier ride out first, scripted, so a
+-- brand-new player (starting cash $100) can finish a first buy
+-- within seconds instead of waiting on the weighted roll.
 local OPENER_SEQUENCE = { 1, 2, 1, 3 }
 local spawnsSoFar = 0
 
@@ -58,6 +59,17 @@ local function spawnOne()
 	local startPos = Vector3.new(WorldBuilder.BeltStartX,
 		WorldBuilder.BeltTopY + def.BodySize.Y / 2, WorldBuilder.BeltZ)
 	model:PivotTo(CFrame.new(startPos))
+
+	-- One-shot placement check, done once here and never in the
+	-- movement tick. The body is authored sitting on the model
+	-- origin, so after the PivotTo its world Position has to be
+	-- exactly startPos; if anything displaced the model (a pivot
+	-- that is off the authored origin does this silently), shift
+	-- the whole model back by the measured error. Position only —
+	-- a cylinder body legitimately carries rotation.
+	if (body.Position - startPos).Magnitude > 0.05 then
+		model:PivotTo(model:GetPivot() * CFrame.new(startPos - body.Position))
+	end
 
 	local entry: PlayerState.Entry = {
 		Model = model,
@@ -98,7 +110,7 @@ local function spawnOne()
 			notify(player, "Cash kurang! " .. def.Name .. " harganya $" .. CharacterFactory.FormatMoney(def.Price) .. ".")
 			return
 		end
-		-- Reserve the slot for the whole glide so a second rapid buy
+		-- Hold the slot for the entire glide, so a second rapid buy
 		-- cannot be promised the same spot.
 		entry.Slot = slot
 		record.SlotTaken[slot] = entry
@@ -137,7 +149,8 @@ local function spawnOne()
 		end)
 	end)
 
-	-- The ride east; ends when the entry is bought or leaves the belt.
+	-- The ride east. Runs until the entry is bought or rolls off
+	-- the far end of the belt, whichever comes first.
 	task.spawn(function()
 		while entry.State == "belt" and not entry.Dead and model.Parent do
 			local dt = task.wait()
